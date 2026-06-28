@@ -60,7 +60,14 @@ type Variant = {
 }
 type BuyerReaction = { dimension: string; severity: string; blocker: string; explanation: string }
 type ApiStatus = {
-  health?: { openai_configured: boolean; openai_required: boolean; openai_model: string }
+  health?: {
+    openai_configured: boolean
+    openai_required: boolean
+    openai_model: string
+    provider_label?: string
+    runtime_label?: string
+    meta_tribe_demo?: boolean
+  }
   debug?: { ok: boolean; model: string; error_type?: string; error?: string; response?: string }
 }
 type Result = {
@@ -394,9 +401,11 @@ function App() {
         </header>
 
         <section className={`apiBanner ${apiStatus.debug?.ok ? 'ok' : apiStatus.debug ? 'bad' : ''}`}>
-          <strong>OpenAI API</strong>
+          <strong>{apiStatus.health?.provider_label || 'OpenAI API'}</strong>
           <span>
-            {apiStatus.debug
+            {apiStatus.health?.meta_tribe_demo
+              ? `Demo adapter enabled; runtime: ${apiStatus.health.runtime_label || 'existing pipeline'}`
+              : apiStatus.debug
               ? apiStatus.debug.ok
                 ? `Live on ${apiStatus.debug.model}`
                 : `${apiStatus.debug.error_type || 'Error'} on ${apiStatus.debug.model}: ${apiStatus.debug.error || 'OpenAI call failed'}`

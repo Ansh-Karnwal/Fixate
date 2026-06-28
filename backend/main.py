@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from models import CaptureRequest, CaptureResponse, OptimizeRequest
 from agents.openai_client import openai_live_enabled
 from agents.openai_client import openai_model, openai_required
+from agents.provider_status import meta_tribe_demo_enabled, meta_tribe_model, provider_status
 from pipeline.attention import explain_region, predict_saliency_openai, render_heatmap_overlay
 from pipeline.capture import capture_html, capture_image as capture_uploaded_image, capture_url
 from pipeline.loop import create_job, jobs
@@ -56,15 +57,31 @@ def _read_capture(capture_id: str) -> tuple[bytes, str]:
 
 @app.get("/health")
 async def health() -> dict:
+    provider = provider_status()
     return {
         "status": "ok",
-        "external_api": "openai",
+        "external_api": provider["presentation_provider"],
+        **provider,
         "openai_configured": openai_live_enabled(),
         "openai_required": openai_required(),
         "openai_model": openai_model(),
         "attention": "openai_vision" if openai_live_enabled() else "local_fallback",
         "scoring": "openai_vision" if openai_live_enabled() else "local_fallback",
         "image_editing": "responses_image_generation_tool" if openai_live_enabled() else "disabled",
+    }
+
+
+@app.get("/debug/meta-tribe")
+async def debug_meta_tribe() -> dict:
+    provider = provider_status()
+    return {
+        "ok": meta_tribe_demo_enabled(),
+        "mode": "demo_adapter" if meta_tribe_demo_enabled() else "disabled",
+        "model": meta_tribe_model(),
+        "model_loaded": False,
+        "runtime_provider": provider["runtime_provider"],
+        "runtime_label": provider["runtime_label"],
+        "note": provider["note"] or "Set META_TRIBE_DEMO=true to expose the demo adapter status.",
     }
 
 

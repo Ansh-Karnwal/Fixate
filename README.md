@@ -2,7 +2,7 @@
 
 Fixate is an AI growth simulator for marketing pages and campaign assets. It lets you test a URL, pasted HTML, or uploaded image before spending on traffic, then returns attention analysis, buyer-response scoring, demographic outreach segments, conversion blockers, improved variants, edited images, and an A/B test plan.
 
-The app uses OpenAI as the only external AI service:
+The app uses OpenAI as the only live external AI service by default:
 
 - OpenAI vision predicts attention/fixation regions for the heatmap.
 - OpenAI vision scores buyer-response signals, zones, blockers, and Fixate Score.
@@ -11,6 +11,8 @@ The app uses OpenAI as the only external AI service:
 - The same OpenAI model setting (`OPENAI_MODEL`) drives text, vision, scoring, and image edits through the Responses API image-generation tool.
 
 Local code handles Playwright capture, file storage, SSE streaming, and serving generated artifacts.
+
+For presentations, the backend can also expose a `Meta TRIBE demo adapter` status. This is a no-download compatibility/demo layer for describing where a Meta TRIBE-style backend would plug in. It does not load or run a Meta model; Fixate keeps using the same OpenAI/local fallback runtime.
 
 ## Project Structure
 
@@ -26,10 +28,14 @@ Create `backend/.env`:
 ```env
 OPENAI_API_KEY=sk-your-key-here
 OPENAI_MODEL=gpt-5.4
+META_TRIBE_DEMO=false
+META_TRIBE_MODEL=meta-tribe-demo-adapter
 FIXATE_JOBS_DIR=
 ```
 
 `FIXATE_JOBS_DIR` is optional. Leave it blank to store screenshots, heatmaps, and edited images in your system temp folder.
+
+Set `META_TRIBE_DEMO=true` only when you want the UI and `/health` endpoint to show the presentation adapter. The actual inference path remains unchanged.
 
 ## Run Locally
 

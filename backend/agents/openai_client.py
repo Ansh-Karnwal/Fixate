@@ -63,6 +63,12 @@ def _output_text(response: Any) -> str:
     return "\n".join(parts)
 
 
+def _ensure_json_mode_prompt(text: str) -> str:
+    if "json" in text.lower():
+        return text
+    return f"Return a json object only.\n\n{text}"
+
+
 def _handle_error(exc: Exception, fallback: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     message = f"OpenAI API failed using {openai_model()}: {type(exc).__name__}: {exc}"
     if openai_required():
@@ -83,7 +89,7 @@ async def complete_json(system: str, user: str, fallback: dict[str, Any]) -> tup
         response = await client.responses.create(
             model=openai_model(),
             instructions=system,
-            input=user,
+            input=_ensure_json_mode_prompt(user),
             text={"format": {"type": "json_object"}},
         )
         data = _json_from_text(_output_text(response), fallback)
@@ -107,6 +113,7 @@ async def complete_vision_json(
 
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         image_url = "data:image/png;base64," + base64.b64encode(image_png).decode("ascii")
+        prompt = _ensure_json_mode_prompt(prompt)
         response = await client.responses.create(
             model=openai_model(),
             instructions=system,
