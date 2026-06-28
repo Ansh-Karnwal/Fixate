@@ -18,6 +18,16 @@ from models import CaptureResult, ElementBox
 
 VIEWPORT = {"width": 1280, "height": 800}
 
+# Flags that keep Chromium stable on memory-constrained cloud hosts (e.g. Render).
+# --disable-dev-shm-usage is critical: containers give /dev/shm only ~64MB, which
+# heavy pages exhaust, crashing the browser (and the worker -> 502).
+LAUNCH_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-zygote",
+]
+
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -145,7 +155,7 @@ def _capture_url_sync(url: str) -> CaptureResult:
     url = _normalise_url(url)
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(args=["--no-sandbox"])
+            browser = pw.chromium.launch(args=LAUNCH_ARGS)
             try:
                 context = browser.new_context(viewport=VIEWPORT)
                 try:
@@ -175,7 +185,7 @@ def _capture_html_sync(html: str) -> CaptureResult:
         raise ValueError("HTML cannot be empty.")
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(args=["--no-sandbox"])
+            browser = pw.chromium.launch(args=LAUNCH_ARGS)
             try:
                 context = browser.new_context(viewport=VIEWPORT)
                 try:
