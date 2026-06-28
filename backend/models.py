@@ -118,6 +118,8 @@ class OptimizeRequest(BaseModel):
     constraints: Constraints = Field(default_factory=Constraints)
     demographic_target: str | None = None
     auto_find_demographics: bool = True
+    generate_images: bool = True
+    image_prompt: str | None = None
 
     @model_validator(mode="after")
     def require_one_source(self) -> "OptimizeRequest":

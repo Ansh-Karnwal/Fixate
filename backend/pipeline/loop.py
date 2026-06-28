@@ -226,7 +226,10 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
         variants: list[VariantResult] = []
         blocked_edits: list[BlockedEdit] = []
         best_variant: VariantResult | None = None
-        for iteration in range(1, req.iterations + 1):
+        # When image generation is disabled the user only wants the attention/diagnosis
+        # read-out, so skip the creative -> image-edit -> constraint-guard loop entirely.
+        loop_count = req.iterations if req.generate_images else 0
+        for iteration in range(1, loop_count + 1):
             active_blockers = [r.blocker for r in reactions if r.severity in {"medium", "high"} and r.blocker != "none"]
             blocker = active_blockers[0] if active_blockers else (current.blockers[0] if current.blockers else "general_clarity")
             await emit(job, "blocker_found", {"iteration": iteration, "blocker": blocker})
@@ -247,7 +250,7 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
             await emit(job, "variant_proposed", {"iteration": iteration, "variant": brief.model_dump(), "live": brief_live})
 
             before_fingerprint = _image_fingerprint(current_image)
-            candidate_image, edit_live, edit_error = await apply_edits(current_image, brief, req.constraints)
+            candidate_image, edit_live, edit_error = await apply_edits(current_image, brief, req.constraints, req.image_prompt)
             if candidate_image is None:
                 if openai_required():
                     raise RuntimeError(edit_error or "OpenAI image generation returned no image.")

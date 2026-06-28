@@ -60,7 +60,7 @@ def _decode_generated_image(image_base64: str) -> bytes:
     return base64.b64decode(payload)
 
 
-async def _openai_edit(image_png: bytes, brief: VariantBrief, constraints: Constraints) -> tuple[bytes | None, str | None]:
+async def _openai_edit(image_png: bytes, brief: VariantBrief, constraints: Constraints, extra_prompt: str | None = None) -> tuple[bytes | None, str | None]:
     if not openai_live_enabled():
         return None, "OPENAI_LIVE=true but OPENAI_API_KEY is not configured." if openai_required() else "OPENAI_API_KEY is not configured."
     try:
@@ -82,8 +82,13 @@ async def _openai_edit(image_png: bytes, brief: VariantBrief, constraints: Const
             f"Demographic focus: {brief.demographic_focus}. "
             f"Brand colors: {constraints.brand.colors}. Fonts: {constraints.brand.fonts}. Tone: {constraints.brand.tone}. "
             f"Locked elements: {[item.model_dump() for item in constraints.locked_elements]}. "
-            "Return one polished edited image."
         )
+        if extra_prompt and extra_prompt.strip():
+            prompt += (
+                "Additional creative direction from the user (treat as high priority, but still respect locked elements "
+                f"and brand constraints): {extra_prompt.strip()}. "
+            )
+        prompt += "Return one polished edited image."
         response = await client.responses.create(
             model=openai_model(),
             input=[
@@ -112,6 +117,7 @@ async def apply_edits(
     image_png: bytes,
     edit_instructions: VariantBrief,
     constraints: Constraints,
+    extra_prompt: str | None = None,
 ) -> tuple[bytes | None, bool, str | None]:
-    edited, error = await _openai_edit(image_png, edit_instructions, constraints)
+    edited, error = await _openai_edit(image_png, edit_instructions, constraints, extra_prompt)
     return edited, edited is not None, error

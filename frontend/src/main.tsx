@@ -170,24 +170,31 @@ const pipelineStages = [
   { key: 'experiment', label: 'A/B Plan', icon: TestTube2 },
 ]
 
-const eventToStage: Record<string, number> = {
-  capture_started: 0,
-  capture_done: 0,
-  heatmap_ready: 1,
-  scored: 2,
-  demographics_started: 3,
-  demographics_ready: 3,
-  buyer_panel: 4,
-  diagnosis_ready: 5,
-  blocker_found: 5,
-  variant_proposed: 6,
-  variant_applied: 7,
-  variant_image_failed: 7,
-  variant_scored: 7,
-  edit_blocked: 8,
-  iteration_done: 7,
-  job_complete: 9,
+// Stages tied to generating a new ad — hidden from the pipeline when image generation is off.
+const imageStageKeys = new Set(['creative', 'image', 'guard'])
+
+const eventToStageKey: Record<string, string> = {
+  capture_started: 'capture',
+  capture_done: 'capture',
+  heatmap_ready: 'attention',
+  scored: 'scoring',
+  demographics_started: 'demographics',
+  demographics_ready: 'demographics',
+  buyer_panel: 'panel',
+  diagnosis_ready: 'diagnosis',
+  blocker_found: 'diagnosis',
+  variant_proposed: 'creative',
+  variant_applied: 'image',
+  variant_image_failed: 'image',
+  variant_scored: 'image',
+  edit_blocked: 'guard',
+  iteration_done: 'image',
+  job_complete: 'experiment',
 }
+
+const stageIndexByKey: Record<string, number> = Object.fromEntries(
+  pipelineStages.map((stage, index) => [stage.key, index]),
+)
 
 const defaultConstraints: Constraints = {
   brand: { colors: ['#0D7D59'], fonts: ['Inter'], tone: 'clear, confident, never hypey', logo_present: false },
@@ -392,6 +399,8 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
   const [autoFindDemographics, setAutoFindDemographics] = useState(true)
   const [goal, setGoal] = useState('increase signups')
   const [iterations, setIterations] = useState(2)
+  const [generateImages, setGenerateImages] = useState(true)
+  const [imagePrompt, setImagePrompt] = useState('')
   const [constraints, setConstraints] = useState<Constraints>(defaultConstraints)
   const [newColor, setNewColor] = useState('#E91E63')
   const [fontInput, setFontInput] = useState('Inter, Poppins')
@@ -428,17 +437,23 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
 
   const isComplete = useMemo(() => !!result || events.some(event => event.event === 'job_complete'), [result, events])
   const lastEvent = events[events.length - 1]
-  // Track the furthest stage reached so the active marker never jumps backwards
-  // (the backend re-emits low-index events like heatmap_ready during later iterations).
+  // Hide the image-generation stages from the pipeline when the user turns off new ad creation.
+  const visibleStages = useMemo(
+    () => (generateImages ? pipelineStages : pipelineStages.filter(stage => !imageStageKeys.has(stage.key))),
+    [generateImages],
+  )
+  // Track the furthest canonical stage reached so the active marker never jumps backwards
+  // (the backend re-emits earlier events like heatmap_ready during later iterations).
   const currentStage = useMemo(() => {
     let max = -1
     events.forEach(event => {
-      const idx = eventToStage[event.event]
-      if (typeof idx === 'number' && idx > max) max = idx
+      const key = eventToStageKey[event.event]
+      if (key && stageIndexByKey[key] > max) max = stageIndexByKey[key]
     })
     return max
   }, [events])
-  const progress = isComplete ? 100 : busy ? Math.min(96, Math.round(((currentStage + 1) / pipelineStages.length) * 100)) : 0
+  const reachedVisible = visibleStages.filter(stage => stageIndexByKey[stage.key] <= currentStage).length
+  const progress = isComplete ? 100 : busy ? Math.min(96, Math.round((reachedVisible / visibleStages.length) * 100)) : 0
   const generatingImage = busy && lastEvent?.event === 'variant_proposed'
   const capturing = busy && !heatmapUrl && !imageUrl && !result
 
@@ -518,6 +533,8 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
           auto_find_demographics: autoFindDemographics,
           goal,
           iterations,
+          generate_images: generateImages,
+          image_prompt: generateImages && imagePrompt.trim() ? imagePrompt.trim() : null,
           constraints: nextConstraints,
         }),
       })
@@ -690,7 +707,7 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
                 <div className="ttl">
                   {isComplete ? 'Analysis complete' : busy ? (lastEvent ? eventMeta[lastEvent.event]?.label ?? 'Working…' : 'Starting run…') : 'Ready to run'}
                 </div>
-                <div className="meta">{jobId ? `job ${jobId.slice(0, 12)}` : '10 specialist agents · live SSE stream'}</div>
+                <div className="meta">{jobId ? `job ${jobId.slice(0, 12)}` : `${visibleStages.length} specialist agents · live SSE stream`}</div>
               </div>
             </div>
             <div className="progressRing">
@@ -714,10 +731,11 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
           </div>
 
           <div className="flow">
-            {pipelineStages.map((stage, index) => {
+            {visibleStages.map(stage => {
               const Icon = stage.icon
-              const done = isComplete || index < currentStage
-              const active = busy && !isComplete && index === currentStage
+              const pos = stageIndexByKey[stage.key]
+              const done = isComplete || pos < currentStage
+              const active = busy && !isComplete && pos === currentStage
               return (
                 <div key={stage.key} className={`node ${active ? 'active' : ''} ${done ? 'done' : ''}`}>
                   <span className="connector" />
@@ -759,32 +777,62 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
             <label>Goal<input value={goal} onChange={event => setGoal(event.target.value)} /></label>
             <label>Demographic focus<input value={demographicTarget} onChange={event => setDemographicTarget(event.target.value)} placeholder="Leave blank to let Fixate choose" /></label>
             <label className="check"><input type="checkbox" checked={autoFindDemographics} onChange={event => setAutoFindDemographics(event.target.checked)} /> Find product demographics</label>
-            <label>Iterations
-              <div className="rangeRow">
-                <input type="range" min={1} max={10} value={iterations} onChange={event => setIterations(Number(event.target.value))} />
-                <span className="rangeVal">{iterations}</span>
+
+            <div className={`genToggle ${generateImages ? 'on' : ''}`}>
+              <div className="genToggleText">
+                <strong><Sparkles size={15} /> Generate a new ad</strong>
+                <span>{generateImages ? 'Fixate will design & re-score improved image variants.' : 'Diagnosis only — analyze attention without creating new images.'}</span>
               </div>
-            </label>
-
-            <div className="subhead"><Lock size={16} /> Brand & constraints</div>
-            <div className="swatches">
-              {constraints.brand.colors.map(color => <button key={color} className="swatch" style={{ background: color }} title={color} onClick={() => setNewColor(color)} />)}
-              <input value={newColor} onChange={event => setNewColor(event.target.value)} />
-              <button onClick={addColor} title="Add color"><Plus size={16} /></button>
-            </div>
-            <label>Allowed fonts<input value={fontInput} onChange={event => syncFonts(event.target.value)} /></label>
-            <label>Tone<input value={constraints.brand.tone} onChange={event => setConstraints(prev => ({ ...prev, brand: { ...prev.brand, tone: event.target.value } }))} /></label>
-
-            <div className="segmented three">
-              {(['conservative', 'balanced', 'aggressive'] as Aggressiveness[]).map(item => (
-                <button key={item} className={constraints.aggressiveness === item ? 'active' : ''} onClick={() => setConstraints(prev => ({ ...prev, aggressiveness: item }))}>{item}</button>
-              ))}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={generateImages}
+                className="switch"
+                onClick={() => setGenerateImages(value => !value)}
+              >
+                <span className="knob" />
+              </button>
             </div>
 
-            <label className="check"><input type="checkbox" checked={constraints.brand.logo_present} onChange={event => setConstraints(prev => ({ ...prev, brand: { ...prev.brand, logo_present: event.target.checked } }))} /> Logo is present</label>
-            <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'logo')} onChange={event => updateLock('logo', event.target.checked)} /> Lock logo</label>
-            <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'legal_text')} onChange={event => updateLock('legal_text', event.target.checked)} /> Lock legal text</label>
-            <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'layout')} onChange={event => updateLock('layout', event.target.checked, 'fixed')} /> Do not move layout</label>
+            {generateImages && (
+              <>
+                <label>Iterations
+                  <div className="rangeRow">
+                    <input type="range" min={1} max={10} value={iterations} onChange={event => setIterations(Number(event.target.value))} />
+                    <span className="rangeVal">{iterations}</span>
+                  </div>
+                </label>
+
+                <label><span className="labelRow">Custom image prompt <span className="optional">optional</span></span>
+                  <textarea
+                    rows={3}
+                    value={imagePrompt}
+                    onChange={event => setImagePrompt(event.target.value)}
+                    placeholder="Direct the image generator, e.g. “make the CTA bright orange and add a product close-up top-right”."
+                  />
+                </label>
+
+                <div className="subhead"><Lock size={16} /> Brand & constraints</div>
+                <div className="swatches">
+                  {constraints.brand.colors.map(color => <button key={color} className="swatch" style={{ background: color }} title={color} onClick={() => setNewColor(color)} />)}
+                  <input value={newColor} onChange={event => setNewColor(event.target.value)} />
+                  <button onClick={addColor} title="Add color"><Plus size={16} /></button>
+                </div>
+                <label>Allowed fonts<input value={fontInput} onChange={event => syncFonts(event.target.value)} /></label>
+                <label>Tone<input value={constraints.brand.tone} onChange={event => setConstraints(prev => ({ ...prev, brand: { ...prev.brand, tone: event.target.value } }))} /></label>
+
+                <div className="segmented three">
+                  {(['conservative', 'balanced', 'aggressive'] as Aggressiveness[]).map(item => (
+                    <button key={item} className={constraints.aggressiveness === item ? 'active' : ''} onClick={() => setConstraints(prev => ({ ...prev, aggressiveness: item }))}>{item}</button>
+                  ))}
+                </div>
+
+                <label className="check"><input type="checkbox" checked={constraints.brand.logo_present} onChange={event => setConstraints(prev => ({ ...prev, brand: { ...prev.brand, logo_present: event.target.checked } }))} /> Logo is present</label>
+                <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'logo')} onChange={event => updateLock('logo', event.target.checked)} /> Lock logo</label>
+                <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'legal_text')} onChange={event => updateLock('legal_text', event.target.checked)} /> Lock legal text</label>
+                <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'layout')} onChange={event => updateLock('layout', event.target.checked, 'fixed')} /> Do not move layout</label>
+              </>
+            )}
 
             <button className="cta runBtn" onClick={() => startJob()} disabled={busy}>
               {busy ? <RefreshCw size={17} className="spin" /> : <Play size={17} />}
