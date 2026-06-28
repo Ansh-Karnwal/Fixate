@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+playwright
+pillow
+numpy
+httpx
+openai
+sse-starlette

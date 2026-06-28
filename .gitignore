@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+**/.env
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+build/
+
+# Generated app artifacts
+.fixate_jobs/
+fixate_jobs/
+screenshots/
+runs/
+*.db
+
+# OS / editor
+.DS_Store
+.vscode/
+
