@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "https://fixate-ridi.onrender.com/health"
+    },
+    {
+      "source": "/optimize",
+      "destination": "https://fixate-ridi.onrender.com/optimize"
+    },
+    {
+      "source": "/capture/:path*",
+      "destination": "https://fixate-ridi.onrender.com/capture/:path*"
+    },
+    {
+      "source": "/score/:path*",
+      "destination": "https://fixate-ridi.onrender.com/score/:path*"
+    },
+    {
+      "source": "/job/:path*",
+      "destination": "https://fixate-ridi.onrender.com/job/:path*"
+    }
+  ]
+}
