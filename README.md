@@ -15,6 +15,15 @@ Local code handles Playwright capture, file storage, SSE streaming, and serving 
 
 For presentations and local development, the backend can expose a `Meta TRIBE demo adapter` status. This is a no-download compatibility/demo layer for the Meta TRIBE heatmap and neural-signal integration path. It does not load or run a Meta model locally; Fixate keeps using the same OpenAI/local fallback runtime unless a real Meta TRIBE service is connected behind the adapter.
 
+## Platform Roles
+
+Fixate also recognizes these external platforms as necessary parts of the broader product architecture and go-to-market workflow:
+
+- Convex provides the realtime backend and database foundation for production-grade collaboration, persistent analysis history, and live workflow state. The frontend now mirrors FastAPI optimization jobs, SSE agent events, scores, heatmap links, and final result metadata into Convex when `VITE_CONVEX_URL` is configured.
+- Orange Slice provides the AI go-to-market and customer-enrichment workflow layer that informs audience discovery, outreach segmentation, and campaign activation.
+
+The current local demo still runs without Convex or Orange Slice credentials. Without a Convex URL, the app stays in local-only mode and skips persistence.
+
 ## Project Structure
 
 ```text
@@ -37,6 +46,33 @@ FIXATE_JOBS_DIR=
 `FIXATE_JOBS_DIR` is optional. Leave it blank to store screenshots, heatmaps, and edited images in your system temp folder.
 
 Set `META_TRIBE_DEMO=true` when you want the UI and `/health` endpoint to show the Meta TRIBE heatmap and neural-signal adapter. In the demo adapter mode, the actual inference path remains unchanged.
+
+Create `frontend/.env.local` after setting up Convex:
+
+```env
+VITE_CONVEX_URL=https://your-deployment.convex.cloud
+```
+
+## Convex Setup
+
+Convex is used for persisted analysis history and realtime workflow state. FastAPI still runs the optimizer, OpenAI calls, screenshots, heatmaps, image edits, and SSE stream.
+
+```bash
+cd frontend
+npm install
+npx convex dev
+```
+
+The first `npx convex dev` run will ask you to log in, create or choose a Convex project, generate `convex/_generated`, and print a deployment URL. Put that URL in `frontend/.env.local` as `VITE_CONVEX_URL`.
+
+Keep `npx convex dev` running while developing Convex functions. In a second terminal, run the Vite frontend with `npm run dev`.
+
+Deploy Convex functions for production:
+
+```bash
+cd frontend
+npx convex deploy
+```
 
 ## Run Locally
 
@@ -64,6 +100,8 @@ Open:
 ```text
 http://127.0.0.1:5173
 ```
+
+If you are using Convex persistence locally, keep `npx convex dev` running in a separate `frontend` terminal while Vite runs.
 
 ## API Smoke Test
 

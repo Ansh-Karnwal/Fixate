@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from 'convex/react'
 import {
   Activity,
   ArrowRight,
@@ -25,6 +26,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react'
+import { api } from '../convex/_generated/api'
 import heroImage from './assets/fixate-hero.png'
 import './styles.css'
 
@@ -88,6 +90,47 @@ type Result = {
   demographics: DemographicSegment[]
   selected_demographic?: DemographicSegment | null
 }
+type SavedAnalysisJob = {
+  _id: string
+  externalJobId: string
+  sourceType: string
+  targetCustomer: string
+  goal: string
+  status: 'running' | 'complete' | 'failed'
+  finalScore?: number
+  heatmapUrl?: string
+  bestImageUrl?: string
+  selectedAudience?: string
+  updatedAt: number
+}
+type ConvexSync = {
+  enabled: boolean
+  savedJobs: SavedAnalysisJob[]
+  createJob: (args: {
+    externalJobId: string
+    sourceType: SourceMode
+    targetCustomer: string
+    demographicTarget?: string
+    goal: string
+  }) => Promise<unknown>
+  addEvent: (args: {
+    externalJobId: string
+    event: string
+    agent?: string
+    label?: string
+    payload: Record<string, unknown>
+  }) => Promise<unknown>
+  completeJob: (args: {
+    externalJobId: string
+    baselineScore?: number
+    finalScore?: number
+    heatmapUrl?: string
+    originalImageUrl?: string
+    bestImageUrl?: string
+    selectedAudience?: string
+  }) => Promise<unknown>
+  failJob: (args: { externalJobId: string; errorMessage: string }) => Promise<unknown>
+}
 
 const eventMeta: Record<string, { label: string; agent: string; icon: React.ElementType }> = {
   capture_started: { label: 'Capture started', agent: 'Capture Agent', icon: Upload },
@@ -126,6 +169,21 @@ const defaultConstraints: Constraints = {
   brand: { colors: ['#0D7D59'], fonts: ['Inter'], tone: 'clear, confident, never hypey', logo_present: false },
   locked_elements: [],
   aggressiveness: 'balanced',
+}
+
+const disabledConvexSync: ConvexSync = {
+  enabled: false,
+  savedJobs: [],
+  createJob: async () => undefined,
+  addEvent: async () => undefined,
+  completeJob: async () => undefined,
+  failJob: async () => undefined,
+}
+
+function remember(promise: Promise<unknown>) {
+  promise.catch(error => {
+    console.warn('Convex sync failed', error)
+  })
 }
 
 function compactEvent(event: StreamEvent) {
@@ -277,7 +335,7 @@ function LoginPage({ onEnter, onBack }: { onEnter: () => void; onBack: () => voi
   )
 }
 
-function App() {
+function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
   const [view, setView] = useState<'landing' | 'login' | 'app'>('landing')
   const [mode, setMode] = useState<SourceMode>('url')
   const [url, setUrl] = useState('https://example.com')
@@ -407,11 +465,26 @@ function App() {
       if (!response.ok) throw new Error(await response.text())
       const data = await response.json()
       setJobId(data.job_id)
+      remember(convexSync.createJob({
+        externalJobId: data.job_id,
+        sourceType: mode,
+        targetCustomer,
+        demographicTarget: nextDemographic || undefined,
+        goal,
+      }))
       const es = new EventSource(`/job/${data.job_id}/stream`)
       esRef.current = es
       Object.keys(eventMeta).forEach(name => {
         es.addEventListener(name, message => {
           const event = JSON.parse((message as MessageEvent).data) as StreamEvent
+          const meta = eventMeta[event.event]
+          remember(convexSync.addEvent({
+            externalJobId: data.job_id,
+            event: event.event,
+            agent: event.agent || meta?.agent,
+            label: meta?.label,
+            payload: event,
+          }))
           setEvents(prev => [...prev, event])
           if (event.event === 'capture_done' && event.image_url) setImageUrl(event.image_url)
           if (event.event === 'demographics_ready') {
@@ -440,6 +513,15 @@ function App() {
                 setResult(payload)
                 setDiscoveredSegments(payload.demographics || [])
                 setSelectedSegment(payload.selected_demographic || null)
+                remember(convexSync.completeJob({
+                  externalJobId: data.job_id,
+                  baselineScore: payload.baseline?.fixate_score,
+                  finalScore: payload.final?.fixate_score,
+                  heatmapUrl: payload.heatmap_url,
+                  originalImageUrl: payload.image_url,
+                  bestImageUrl: payload.best_image_url,
+                  selectedAudience: payload.selected_demographic?.name || payload.experiment_plan?.target_audience,
+                }))
                 if (payload.best_image_url) setPreview('best')
               })
               .finally(() => setBusy(false))
@@ -447,6 +529,10 @@ function App() {
           if (event.event === 'job_error') {
             es.close()
             setError(event.message || 'Job failed.')
+            remember(convexSync.failJob({
+              externalJobId: data.job_id,
+              errorMessage: event.message || 'Job failed.',
+            }))
             setBusy(false)
           }
         })
@@ -505,6 +591,7 @@ function App() {
       : preview === 'screenshot'
         ? imageUrl || result?.image_url
         : heatmapUrl || result?.heatmap_url
+  const latestScore = scorePoints[scorePoints.length - 1]?.score
 
   if (view === 'landing') {
     return <LandingPage onStart={() => setView('login')} onLogin={() => setView('login')} />
@@ -524,7 +611,7 @@ function App() {
           </div>
           <div className="scoreBadge">
             <Activity size={18} />
-            <span>{result?.final.fixate_score ?? scorePoints.at(-1)?.score ?? '--'}</span>
+            <span>{result?.final.fixate_score ?? latestScore ?? '--'}</span>
           </div>
         </header>
 
@@ -594,6 +681,28 @@ function App() {
               Run Fixate
             </button>
             {error && <div className="error">{error}</div>}
+
+            <section className="convexPanel">
+              <div className="convexHead">
+                <strong>Convex Sync</strong>
+                <span className={convexSync.enabled ? 'online' : 'offline'}>
+                  {convexSync.enabled ? 'active' : 'not configured'}
+                </span>
+              </div>
+              <div className="historyList">
+                {convexSync.savedJobs.slice(0, 5).map(saved => (
+                  <article key={saved._id}>
+                    <div>
+                      <strong>{saved.goal}</strong>
+                      <span>{saved.targetCustomer}</span>
+                    </div>
+                    <em>{saved.finalScore ?? '--'}</em>
+                  </article>
+                ))}
+                {convexSync.enabled && !convexSync.savedJobs.length && <p>No saved analyses yet.</p>}
+                {!convexSync.enabled && <p>Local-only mode.</p>}
+              </div>
+            </section>
           </section>
 
           <section className="mainStack">
@@ -813,4 +922,35 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<App />)
+const convexUrl = import.meta.env.VITE_CONVEX_URL
+const convexClient = convexUrl ? new ConvexReactClient(convexUrl) : null
+
+function ConvexBackedApp() {
+  const createJob = useMutation(api.analyses.createJob)
+  const addEvent = useMutation(api.analyses.addEvent)
+  const completeJob = useMutation(api.analyses.completeJob)
+  const failJob = useMutation(api.analyses.failJob)
+  const savedJobs = useQuery(api.analyses.listJobs, {}) as SavedAnalysisJob[] | undefined
+
+  const convexSync = useMemo<ConvexSync>(() => ({
+    enabled: true,
+    savedJobs: savedJobs || [],
+    createJob,
+    addEvent,
+    completeJob,
+    failJob,
+  }), [addEvent, completeJob, createJob, failJob, savedJobs])
+
+  return <App convexSync={convexSync} />
+}
+
+function Root() {
+  if (!convexClient) return <App />
+  return (
+    <ConvexProvider client={convexClient}>
+      <ConvexBackedApp />
+    </ConvexProvider>
+  )
+}
+
+createRoot(document.getElementById('root')!).render(<Root />)

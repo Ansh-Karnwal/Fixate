@@ -10,6 +10,8 @@ venv/
 # Environment / secrets
 .env
 **/.env
+**/.env.local
+**/.env.*.local
 
 # Node
 node_modules/
@@ -28,4 +30,3 @@ runs/
 # OS / editor
 .DS_Store
 .vscode/
-

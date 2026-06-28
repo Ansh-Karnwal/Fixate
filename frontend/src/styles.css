@@ -649,6 +649,83 @@ textarea {
   font-size: 13px;
 }
 
+.convexPanel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dfe6db;
+  border-radius: 8px;
+  padding: 11px;
+  background: #fbfcfa;
+}
+
+.convexHead,
+.historyList article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.convexHead strong {
+  font-size: 13px;
+}
+
+.convexHead span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.convexHead .online {
+  background: #e7f7eb;
+  color: #0a6b3d;
+}
+
+.convexHead .offline {
+  background: #f1f2ee;
+  color: #66736a;
+}
+
+.historyList {
+  display: grid;
+  gap: 7px;
+}
+
+.historyList article {
+  border: 1px solid #e3e9e0;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+
+.historyList article div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.historyList article strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyList article span,
+.historyList p {
+  margin: 0;
+  color: #66736a;
+  font-size: 12px;
+}
+
+.historyList article em {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-weight: 850;
+}
+
 .previewScroll {
   max-height: 600px;
   overflow-y: auto;
