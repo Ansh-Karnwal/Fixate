@@ -34,11 +34,14 @@ class CaptureResult(BaseModel):
 class CaptureRequest(BaseModel):
     url: str | None = None
     html: str | None = None
+    image_base64: str | None = None
+    image_name: str | None = None
 
     @model_validator(mode="after")
     def require_one_source(self) -> "CaptureRequest":
-        if bool(self.url) == bool(self.html):
-            raise ValueError("Provide exactly one of url or html.")
+        sources = [bool(self.url), bool(self.html), bool(self.image_base64)]
+        if sum(sources) != 1:
+            raise ValueError("Provide exactly one of url, html, or image_base64.")
         return self
 
 
@@ -94,18 +97,33 @@ class Constraints(BaseModel):
     aggressiveness: Aggressiveness = "balanced"
 
 
+class DemographicSegment(BaseModel):
+    id: str
+    name: str
+    summary: str
+    messaging_angle: str
+    visual_direction: str
+    recommended_channel: str
+    why_it_fits: str
+
+
 class OptimizeRequest(BaseModel):
     url: str | None = None
     html: str | None = None
+    image_base64: str | None = None
+    image_name: str | None = None
     target_customer: str = "busy small-business buyer"
     goal: str = "increase clicks"
     iterations: int = Field(default=2, ge=1, le=10)
     constraints: Constraints = Field(default_factory=Constraints)
+    demographic_target: str | None = None
+    auto_find_demographics: bool = True
 
     @model_validator(mode="after")
     def require_one_source(self) -> "OptimizeRequest":
-        if bool(self.url) == bool(self.html):
-            raise ValueError("Provide exactly one of url or html.")
+        sources = [bool(self.url), bool(self.html), bool(self.image_base64)]
+        if sum(sources) != 1:
+            raise ValueError("Provide exactly one of url, html, or image_base64.")
         return self
 
 
@@ -130,6 +148,7 @@ class VariantBrief(BaseModel):
     cta_instruction: str
     visual_instruction: str
     layout_instruction: str = ""
+    demographic_focus: str = ""
     color: str | None = None
     font: str | None = None
     touches_locked_element: str | None = None
@@ -155,6 +174,7 @@ class VariantResult(BaseModel):
     delta: float
     accepted: bool
     image_url: str | None = None
+    demographic_focus: str = ""
     explanation: str = ""
 
 

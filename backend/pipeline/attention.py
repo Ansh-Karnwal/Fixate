@@ -49,6 +49,34 @@ def _heuristic_saliency(height: int, width: int) -> np.ndarray:
     return _normalise(top_scan + second_scan + left_bias + center_bias)
 
 
+def _visual_saliency(image: Image.Image) -> np.ndarray:
+    """Content-aware fallback saliency.
+
+    This is not a replacement for real eye tracking or OpenAI vision, but it is
+    much better than returning the same top-left heatmap for every same-size
+    image. It combines contrast edges, color saturation, dark/light text-like
+    contrast, and a modest above-the-fold scan bias.
+    """
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    height, width = rgb.shape[:2]
+    gray = (0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]).astype(np.float32)
+    grad_y = np.abs(np.diff(gray, axis=0, prepend=gray[:1, :]))
+    grad_x = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
+    edges = _normalise(grad_x + grad_y)
+
+    max_channel = rgb.max(axis=2)
+    min_channel = rgb.min(axis=2)
+    saturation = _normalise(max_channel - min_channel)
+    contrast = _normalise(np.abs(gray - float(gray.mean())))
+
+    # Text/buttons often create compact high-contrast areas. Emphasize those
+    # without letting a large photo or full-color background dominate.
+    text_like = _normalise(edges * (0.45 + contrast) * (0.55 + saturation * 0.45))
+    position_bias = _heuristic_saliency(height, width)
+    saliency = 0.42 * text_like + 0.25 * edges + 0.18 * saturation + 0.15 * position_bias
+    return _normalise(saliency)
+
+
 def _nearest_element(px: int, py: int, element_boxes: list[ElementBox]) -> list[int] | None:
     best: list[int] | None = None
     best_dist = float("inf")
@@ -210,7 +238,7 @@ async def _predict_band_regions(
 ) -> tuple[list[FixationRegion], bool]:
     width = image.width
     band_height = y2 - y1
-    fallback_regions = _top_regions(_heuristic_saliency(band_height, width), element_boxes=band_elements)
+    fallback_regions = _top_regions(_visual_saliency(image.crop((0, y1, width, y2))), element_boxes=band_elements)
     elements_payload = [{"id": i, "tag": el.tag, "bbox": el.bbox} for i, el in enumerate(band_elements)]
     data, live = await complete_vision_json(
         "You are an expert eye-tracking and marketing attention analyst. Return strict JSON only.",
@@ -291,7 +319,7 @@ async def explain_region(
 def predict_saliency(screenshot_png: bytes, element_boxes: list[ElementBox] | None = None) -> AttentionResult:
     image = Image.open(io.BytesIO(screenshot_png)).convert("RGB")
     width, height = image.size
-    saliency = _heuristic_saliency(height, width)
+    saliency = _visual_saliency(image)
     saliency = _normalise(saliency)
     regions = _top_regions(saliency, element_boxes=element_boxes)
     return AttentionResult(

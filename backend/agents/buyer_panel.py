@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 
 from agents.openai_client import complete_json
-from models import BuyerReaction, ScoreResult
+from models import BuyerReaction, DemographicSegment, ScoreResult
 
 
-def _fallback_reactions(score: ScoreResult, text: str) -> list[BuyerReaction]:
+def _fallback_reactions(
+    score: ScoreResult,
+    text: str,
+    demographic: DemographicSegment | None = None,
+) -> list[BuyerReaction]:
     signals = score.signal_scores
     reactions: list[BuyerReaction] = []
     checks = [
@@ -16,6 +20,7 @@ def _fallback_reactions(score: ScoreResult, text: str) -> list[BuyerReaction]:
         ("urgency", "low_urgency", 0.62 if "now" not in text.lower() and "today" not in text.lower() else 0.25, 0.5, "There is little reason to act immediately."),
         ("cta_strength", "weak_cta", 1 - signals["cta_strength"], 0.55, "The next step could be clearer or more prominent."),
     ]
+    audience_note = f" for {demographic.name}" if demographic else ""
     for dimension, blocker, value, threshold, explanation in checks:
         if value >= threshold:
             severity = "high" if value >= threshold + 0.18 else "medium"
@@ -24,7 +29,7 @@ def _fallback_reactions(score: ScoreResult, text: str) -> list[BuyerReaction]:
                     dimension=dimension,
                     severity=severity,
                     blocker=blocker,
-                    explanation=explanation,
+                    explanation=f"{explanation}{audience_note}.",
                 )
             )
         else:
@@ -56,8 +61,13 @@ def _coerce_reaction(item: object, fallback: BuyerReaction) -> BuyerReaction:
     )
 
 
-async def run_buyer_panel(score: ScoreResult, text: str) -> tuple[list[BuyerReaction], bool]:
-    fallback_reactions = _fallback_reactions(score, text)
+async def run_buyer_panel(
+    score: ScoreResult,
+    text: str,
+    target_customer: str = "",
+    demographic: DemographicSegment | None = None,
+) -> tuple[list[BuyerReaction], bool]:
+    fallback_reactions = _fallback_reactions(score, text, demographic)
     fallback = {"reactions": [r.model_dump() for r in fallback_reactions]}
     data, live = await complete_json(
         "You are a buyer reaction panel for conversion optimization. Return strict JSON.",
@@ -66,6 +76,8 @@ async def run_buyer_panel(score: ScoreResult, text: str) -> tuple[list[BuyerReac
                 "task": "Return five reactions for confusion, trust, desire, urgency, cta_strength. Each item needs dimension, severity low|medium|high, blocker (always a string, use 'none' if not applicable), explanation.",
                 "score": score.model_dump(),
                 "text_excerpt": text[:5000],
+                "target_customer": target_customer,
+                "selected_demographic": demographic.model_dump() if demographic else None,
             }
         ),
         fallback,

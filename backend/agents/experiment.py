@@ -3,15 +3,21 @@ from __future__ import annotations
 import json
 
 from agents.openai_client import complete_json
-from models import ExperimentPlan, VariantResult
+from models import DemographicSegment, ExperimentPlan, VariantResult
 
 
-def _fallback_plan(best_variant: VariantResult | None, target_customer: str, goal: str) -> ExperimentPlan:
+def _fallback_plan(
+    best_variant: VariantResult | None,
+    target_customer: str,
+    goal: str,
+    demographic: DemographicSegment | None = None,
+) -> ExperimentPlan:
     variant_desc = best_variant.description if best_variant else "the clearer variant"
+    audience = demographic.name if demographic else target_customer
     return ExperimentPlan(
-        hypothesis=f"If {target_customer} sees {variant_desc}, then {goal} will improve because the main blocker is addressed earlier.",
-        recommended_channel="Primary landing page traffic or the highest-volume paid social ad set.",
-        target_audience=target_customer,
+        hypothesis=f"If {audience} sees {variant_desc}, then {goal} will improve because the main blocker is addressed earlier.",
+        recommended_channel=demographic.recommended_channel if demographic else "Primary landing page traffic or the highest-volume paid social ad set.",
+        target_audience=audience,
         success_metric=goal,
         ab_test_setup="Split traffic 50/50 between the original and winning Fixate variant for one full business cycle or until sample size is reached.",
         next_step="Launch the variant as Treatment B and monitor conversion rate, CTA click-through, and bounce rate.",
@@ -22,14 +28,16 @@ async def build_experiment_plan(
     best_variant: VariantResult | None,
     target_customer: str,
     goal: str,
+    demographic: DemographicSegment | None = None,
 ) -> tuple[ExperimentPlan, bool]:
-    fallback = _fallback_plan(best_variant, target_customer, goal)
+    fallback = _fallback_plan(best_variant, target_customer, goal, demographic)
     data, live = await complete_json(
         "You are an experiment planner. Return strict JSON for hypothesis, recommended_channel, target_audience, success_metric, ab_test_setup, next_step.",
         json.dumps(
             {
                 "best_variant": best_variant.model_dump() if best_variant else None,
                 "target_customer": target_customer,
+                "selected_demographic": demographic.model_dump() if demographic else None,
                 "goal": goal,
             }
         ),

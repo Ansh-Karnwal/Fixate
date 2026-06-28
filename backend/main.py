@@ -14,8 +14,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from models import CaptureRequest, CaptureResponse, OptimizeRequest
 from agents.openai_client import openai_live_enabled
+from agents.openai_client import openai_model, openai_required
 from pipeline.attention import explain_region, predict_saliency_openai, render_heatmap_overlay
-from pipeline.capture import capture_html, capture_url
+from pipeline.capture import capture_html, capture_image as capture_uploaded_image, capture_url
 from pipeline.loop import create_job, jobs
 from pipeline.scorer import score_regions
 
@@ -59,16 +60,46 @@ async def health() -> dict:
         "status": "ok",
         "external_api": "openai",
         "openai_configured": openai_live_enabled(),
+        "openai_required": openai_required(),
+        "openai_model": openai_model(),
         "attention": "openai_vision" if openai_live_enabled() else "local_fallback",
         "scoring": "openai_vision" if openai_live_enabled() else "local_fallback",
-        "image_editing": "openai_image_edit" if openai_live_enabled() else "local_fallback",
+        "image_editing": "responses_image_generation_tool" if openai_live_enabled() else "disabled",
     }
+
+
+@app.get("/debug/openai")
+async def debug_openai() -> dict:
+    if not openai_live_enabled():
+        return {"ok": False, "model": openai_model(), "error": "OPENAI_API_KEY is not configured."}
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = await client.responses.create(
+            model=openai_model(),
+            input='Return exactly {"ok":true} as JSON.',
+            text={"format": {"type": "json_object"}},
+        )
+        return {"ok": True, "model": openai_model(), "response": getattr(response, "output_text", "")}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "model": openai_model(),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
 
 
 @app.post("/capture", response_model=CaptureResponse)
 async def capture(req: CaptureRequest) -> CaptureResponse:
     try:
-        result = await (capture_url(req.url) if req.url else capture_html(req.html or ""))
+        if req.url:
+            result = await capture_url(req.url)
+        elif req.image_base64:
+            result = await capture_uploaded_image(req.image_base64, req.image_name)
+        else:
+            result = await capture_html(req.html or "")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

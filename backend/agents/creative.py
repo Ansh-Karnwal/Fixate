@@ -5,7 +5,7 @@ import re
 from uuid import uuid4
 
 from agents.openai_client import complete_json
-from models import Constraints, Diagnosis, VariantBrief
+from models import Constraints, DemographicSegment, Diagnosis, VariantBrief
 
 
 def _flatten_to_text(value: object) -> list[str]:
@@ -39,30 +39,37 @@ def _fallback_brief(
     constraints: Constraints,
     text: str,
     iteration: int,
+    demographic: DemographicSegment | None = None,
 ) -> VariantBrief:
     blocker = diagnosis.hurting_conversion[0] if diagnosis.hurting_conversion else "general_clarity"
     color = constraints.brand.colors[0] if constraints.brand.colors else None
     font = constraints.brand.fonts[0] if constraints.brand.fonts else None
     tone = constraints.brand.tone or "clear and direct"
+    audience = demographic.name if demographic else "target buyers"
     copy_by_blocker = {
-        "low_trust": "Join customers who use this to make better launch decisions before spending on traffic.",
-        "low_urgency": "Run the check today and launch the stronger version first.",
-        "high_confusion": "See what buyers notice, what they miss, and what to improve next.",
-        "high_cognitive_load": "Get a clear buyer-readout: attention, trust, desire, and CTA strength in one pass.",
-        "valuable_content_is_hidden": "Move the strongest proof point into the opening section.",
-        "attention_trap": "Shift attention from decorative elements to the main promise and CTA.",
-        "weak_cta": "Start your Fixate test",
+        "low_trust": f"Show {audience} the proof they need before they commit.",
+        "low_urgency": f"Give {audience} a clear reason to act today.",
+        "high_confusion": f"Make the offer instantly clear for {audience}.",
+        "high_cognitive_load": f"Help {audience} understand the value in one quick pass.",
+        "valuable_content_is_hidden": f"Move the strongest {audience} proof point into the opening section.",
+        "attention_trap": f"Shift attention from decoration to the promise {audience} cares about.",
+        "weak_cta": f"Give {audience} one obvious next step",
     }
     return VariantBrief(
         id=f"variant-{iteration}-{uuid4().hex[:6]}",
         target_blocker=blocker,
         rewritten_copy=copy_by_blocker.get(blocker, f"Clarify the offer for {tone} buyers."),
         cta_instruction="Make the primary CTA more specific and keep it near the main promise.",
-        visual_instruction="Apply a subtle branded emphasis treatment to the primary CTA." if constraints.aggressiveness != "conservative" else "",
+        visual_instruction=(
+            demographic.visual_direction
+            if demographic
+            else ("Apply a subtle branded emphasis treatment to the primary CTA." if constraints.aggressiveness != "conservative" else "")
+        ),
         layout_instruction="Move the CTA closer to the highest-attention region." if constraints.aggressiveness in {"balanced", "aggressive"} else "",
+        demographic_focus=audience,
         color=color,
         font=font,
-        explanation=f"Targets {blocker} with a {tone} variant that stays inside the selected constraints.",
+        explanation=f"Targets {blocker} for {audience} with a {tone} variant that stays inside the selected constraints.",
     )
 
 
@@ -73,16 +80,18 @@ async def generate_variant_brief(
     target_customer: str,
     goal: str,
     iteration: int,
+    demographic: DemographicSegment | None = None,
 ) -> tuple[VariantBrief, bool]:
-    fallback = _fallback_brief(diagnosis, constraints, text, iteration)
+    fallback = _fallback_brief(diagnosis, constraints, text, iteration, demographic)
     data, live = await complete_json(
         "You are Fixate's creative agent. Return one JSON variant brief and obey all constraints. Never edit locked elements.",
         json.dumps(
             {
-                "task": "Generate one variant brief with id, target_blocker, rewritten_copy, cta_instruction, visual_instruction, layout_instruction, color, font, explanation. Do not touch locked elements.",
+                "task": "Generate one variant brief with id, target_blocker, rewritten_copy, cta_instruction, visual_instruction, layout_instruction, demographic_focus, color, font, explanation. Do not touch locked elements.",
                 "diagnosis": diagnosis.model_dump(),
                 "constraints": constraints.model_dump(),
                 "target_customer": target_customer,
+                "selected_demographic": demographic.model_dump() if demographic else None,
                 "goal": goal,
                 "text_excerpt": text[:5000],
                 "iteration": iteration,
@@ -99,6 +108,7 @@ async def generate_variant_brief(
         "cta_instruction",
         "visual_instruction",
         "layout_instruction",
+        "demographic_focus",
         "explanation",
     ):
         merged[key] = _coerce_text(merged.get(key), getattr(fallback, key))

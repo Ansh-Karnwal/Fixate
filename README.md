@@ -1,13 +1,14 @@
 # Fixate
 
-Fixate is an AI growth simulator for marketing pages and campaign assets. It lets you test a URL or pasted HTML before spending on traffic, then returns attention analysis, buyer-response scoring, conversion blockers, improved variants, edited images, and an A/B test plan.
+Fixate is an AI growth simulator for marketing pages and campaign assets. It lets you test a URL, pasted HTML, or uploaded image before spending on traffic, then returns attention analysis, buyer-response scoring, demographic outreach segments, conversion blockers, improved variants, edited images, and an A/B test plan.
 
 The app uses OpenAI as the only external AI service:
 
 - OpenAI vision predicts attention/fixation regions for the heatmap.
 - OpenAI vision scores buyer-response signals, zones, blockers, and Fixate Score.
 - OpenAI agents generate buyer reactions, strategy, creative variants, and A/B plans.
-- OpenAI image editing creates edited variant images.
+- A Demographics Agent identifies likely outreach segments and tunes the creative path toward the selected audience.
+- The same OpenAI model setting (`OPENAI_MODEL`) drives text, vision, scoring, and image edits through the Responses API image-generation tool.
 
 Local code handles Playwright capture, file storage, SSE streaming, and serving generated artifacts.
 
@@ -24,8 +25,7 @@ Create `backend/.env`:
 
 ```env
 OPENAI_API_KEY=sk-your-key-here
-OPENAI_MODEL=gpt-4o
-OPENAI_IMAGE_MODEL=gpt-image-1
+OPENAI_MODEL=gpt-5.4
 FIXATE_JOBS_DIR=
 ```
 
@@ -106,5 +106,5 @@ open "http://127.0.0.1:8080/job/$JOB_ID/variant/1/image"
 ## Notes
 
 - A run can take 30-90 seconds because OpenAI image editing is slower than text calls.
-- If the OpenAI API fails, the backend has local fallbacks so development does not crash.
+- If OpenAI text, vision, or scoring calls fail, the backend uses local fallbacks so development does not crash. If image editing fails, Fixate reports the failure instead of creating a fake overlay image.
 - Do not commit `backend/.env`; it contains your API key.
