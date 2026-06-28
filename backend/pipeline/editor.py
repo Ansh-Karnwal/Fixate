@@ -108,6 +108,8 @@ async def _openai_edit(image_png: bytes, brief: VariantBrief, constraints: Const
     return None
 
 
-async def apply_edits(image_png: bytes, edit_instructions: VariantBrief, constraints: Constraints) -> bytes:
+async def apply_edits(image_png: bytes, edit_instructions: VariantBrief, constraints: Constraints) -> tuple[bytes, bool]:
     edited = await _openai_edit(image_png, edit_instructions, constraints)
-    return edited or _fallback_edit(image_png, edit_instructions, constraints)
+    if edited is not None:
+        return edited, True
+    return _fallback_edit(image_png, edit_instructions, constraints), False

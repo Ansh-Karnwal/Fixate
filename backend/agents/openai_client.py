@@ -9,9 +9,9 @@ def openai_live_enabled() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-async def complete_json(system: str, user: str, fallback: dict[str, Any]) -> dict[str, Any]:
+async def complete_json(system: str, user: str, fallback: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if not openai_live_enabled():
-        return fallback
+        return fallback, False
     try:
         from openai import AsyncOpenAI
 
@@ -27,9 +27,9 @@ async def complete_json(system: str, user: str, fallback: dict[str, Any]) -> dic
         )
         content = response.choices[0].message.content or "{}"
         data = json.loads(content)
-        return data if isinstance(data, dict) else fallback
+        return (data, True) if isinstance(data, dict) else (fallback, False)
     except Exception:
-        return fallback
+        return fallback, False
 
 
 async def complete_vision_json(
@@ -37,9 +37,9 @@ async def complete_vision_json(
     prompt: str,
     image_png: bytes,
     fallback: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], bool]:
     if not openai_live_enabled():
-        return fallback
+        return fallback, False
     try:
         import base64
         from openai import AsyncOpenAI
@@ -63,6 +63,6 @@ async def complete_vision_json(
         )
         content = response.choices[0].message.content or "{}"
         data = json.loads(content)
-        return data if isinstance(data, dict) else fallback
+        return (data, True) if isinstance(data, dict) else (fallback, False)
     except Exception:
-        return fallback
+        return fallback, False

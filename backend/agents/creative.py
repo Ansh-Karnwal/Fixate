@@ -8,6 +8,32 @@ from agents.openai_client import complete_json
 from models import Constraints, Diagnosis, VariantBrief
 
 
+def _flatten_to_text(value: object) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (int, float, bool)):
+        return [str(value)]
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for v in value.values():
+            parts.extend(_flatten_to_text(v))
+        return parts
+    if isinstance(value, list):
+        parts = []
+        for v in value:
+            parts.extend(_flatten_to_text(v))
+        return parts
+    return []
+
+
+def _coerce_text(value: object, fallback: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value
+    parts = _flatten_to_text(value)
+    return " ".join(parts) if parts else fallback
+
+
 def _fallback_brief(
     diagnosis: Diagnosis,
     constraints: Constraints,
@@ -47,9 +73,9 @@ async def generate_variant_brief(
     target_customer: str,
     goal: str,
     iteration: int,
-) -> VariantBrief:
+) -> tuple[VariantBrief, bool]:
     fallback = _fallback_brief(diagnosis, constraints, text, iteration)
-    data = await complete_json(
+    data, live = await complete_json(
         "You are Fixate's creative agent. Return one JSON variant brief and obey all constraints. Never edit locked elements.",
         json.dumps(
             {
@@ -67,6 +93,19 @@ async def generate_variant_brief(
     merged = {**fallback.model_dump(), **data}
     if not merged.get("id"):
         merged["id"] = fallback.id
+    for key in (
+        "target_blocker",
+        "rewritten_copy",
+        "cta_instruction",
+        "visual_instruction",
+        "layout_instruction",
+        "explanation",
+    ):
+        merged[key] = _coerce_text(merged.get(key), getattr(fallback, key))
+    touches = merged.get("touches_locked_element")
+    if touches is not None and not isinstance(touches, str):
+        parts = _flatten_to_text(touches)
+        merged["touches_locked_element"] = " ".join(parts) if parts else None
     if constraints.brand.colors:
         allowed_colors = {color.upper() for color in constraints.brand.colors}
         proposed_color = str(merged.get("color") or "").upper()
@@ -82,4 +121,4 @@ async def generate_variant_brief(
             merged["font"] = constraints.brand.fonts[0]
     elif merged.get("font") and len(str(merged["font"])) > 40:
         merged["font"] = None
-    return VariantBrief(**merged)
+    return VariantBrief(**merged), live

@@ -39,18 +39,41 @@ def _fallback_reactions(score: ScoreResult, text: str) -> list[BuyerReaction]:
     return reactions
 
 
-async def run_buyer_panel(score: ScoreResult, text: str) -> list[BuyerReaction]:
-    fallback = {"reactions": [r.model_dump() for r in _fallback_reactions(score, text)]}
-    data = await complete_json(
+def _coerce_reaction(item: object, fallback: BuyerReaction) -> BuyerReaction:
+    if not isinstance(item, dict):
+        return fallback
+    severity = item.get("severity")
+    if severity not in ("low", "medium", "high"):
+        severity = fallback.severity
+    blocker = item.get("blocker")
+    if not isinstance(blocker, str) or not blocker:
+        blocker = "none" if blocker is False else fallback.blocker
+    return BuyerReaction(
+        dimension=str(item.get("dimension") or fallback.dimension),
+        severity=severity,
+        blocker=blocker,
+        explanation=str(item.get("explanation") or fallback.explanation),
+    )
+
+
+async def run_buyer_panel(score: ScoreResult, text: str) -> tuple[list[BuyerReaction], bool]:
+    fallback_reactions = _fallback_reactions(score, text)
+    fallback = {"reactions": [r.model_dump() for r in fallback_reactions]}
+    data, live = await complete_json(
         "You are a buyer reaction panel for conversion optimization. Return strict JSON.",
         json.dumps(
             {
-                "task": "Return five reactions for confusion, trust, desire, urgency, cta_strength. Each item needs dimension, severity low|medium|high, blocker, explanation.",
+                "task": "Return five reactions for confusion, trust, desire, urgency, cta_strength. Each item needs dimension, severity low|medium|high, blocker (always a string, use 'none' if not applicable), explanation.",
                 "score": score.model_dump(),
                 "text_excerpt": text[:5000],
             }
         ),
         fallback,
     )
-    return [BuyerReaction(**item) for item in data.get("reactions", fallback["reactions"])[:5]]
+    raw_reactions = data.get("reactions", fallback["reactions"])[:5]
+    reactions = [
+        _coerce_reaction(item, fallback_reactions[index] if index < len(fallback_reactions) else fallback_reactions[-1])
+        for index, item in enumerate(raw_reactions)
+    ]
+    return reactions, live
 

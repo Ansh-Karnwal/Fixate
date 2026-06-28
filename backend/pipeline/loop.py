@@ -12,7 +12,7 @@ from agents.buyer_panel import run_buyer_panel
 from agents.creative import generate_variant_brief
 from agents.experiment import build_experiment_plan
 from agents.strategist import diagnose
-from models import BlockedEdit, OptimizeRequest, ScoreResult, VariantBrief, VariantResult
+from models import BlockedEdit, FixationRegion, OptimizeRequest, ScoreResult, VariantBrief, VariantResult
 from pipeline.attention import predict_saliency_openai, render_heatmap_overlay
 from pipeline.capture import capture_html, capture_url
 from pipeline.constraints import violates_constraints
@@ -29,6 +29,11 @@ class Job:
     result: dict | None = None
     error: str | None = None
     artifact_dir: Path | None = None
+    # Fixation regions matching the currently saved heatmap.png, plus a lazily-filled
+    # cache of per-region explanations (one entry per region the user clicks).
+    attention_regions: list[FixationRegion] = field(default_factory=list)
+    heatmap_text: str = ""
+    region_explanations: dict[int, str] = field(default_factory=dict)
 
 
 jobs: dict[str, Job] = {}
@@ -104,31 +109,38 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
             },
         )
 
-        attention = await predict_saliency_openai(capture.screenshot_png, capture.text)
-        heatmap_png = render_heatmap_overlay(capture.screenshot_png, attention.saliency_map)
+        attention = await predict_saliency_openai(capture.screenshot_png, capture.text, capture.element_boxes)
+        heatmap_png = render_heatmap_overlay(capture.screenshot_png, attention.saliency_map, attention.regions)
         (job.artifact_dir / "heatmap.png").write_bytes(heatmap_png)
+        job.attention_regions = list(attention.regions)
+        job.heatmap_text = capture.text
+        job.region_explanations.clear()
         await emit(
             job,
             "heatmap_ready",
             {
                 "attention_model": "openai_vision" if attention.live else "local_fallback",
                 "regions": [r.model_dump() for r in attention.regions],
+                "scan_path_count": len(attention.scan_path),
+                "image_width": capture.width,
+                "image_height": capture.height,
                 "heatmap_bytes": len(heatmap_png),
                 "heatmap_url": f"/job/{job.job_id}/heatmap",
+                "live": attention.live,
             },
         )
 
         current_image = capture.screenshot_png
         current_text = capture.text
         current_attention = attention
-        current = await score_regions(current_image, current_attention.saliency_map, current_text)
-        await emit(job, "scored", {"fixate_score": current.fixate_score, "blockers": current.blockers})
+        current, score_live = await score_regions(current_image, current_attention.saliency_map, current_text)
+        await emit(job, "scored", {"fixate_score": current.fixate_score, "blockers": current.blockers, "live": score_live})
 
         baseline = current
-        reactions = await run_buyer_panel(current, current_text)
-        await emit(job, "buyer_panel", {"reactions": [r.model_dump() for r in reactions]})
-        diagnosis = await diagnose(current, reactions)
-        await emit(job, "diagnosis_ready", {"diagnosis": diagnosis.model_dump()})
+        reactions, reactions_live = await run_buyer_panel(current, current_text)
+        await emit(job, "buyer_panel", {"reactions": [r.model_dump() for r in reactions], "live": reactions_live})
+        diagnosis, diagnosis_live = await diagnose(current, reactions)
+        await emit(job, "diagnosis_ready", {"diagnosis": diagnosis.model_dump(), "live": diagnosis_live})
 
         variants: list[VariantResult] = []
         blocked_edits: list[BlockedEdit] = []
@@ -141,7 +153,7 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
             diagnosis_for_iteration.hurting_conversion = [blocker] + [
                 b for b in diagnosis_for_iteration.hurting_conversion if b != blocker
             ]
-            brief = await generate_variant_brief(
+            brief, brief_live = await generate_variant_brief(
                 diagnosis_for_iteration,
                 req.constraints,
                 current_text,
@@ -150,12 +162,12 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
                 iteration,
             )
             brief = _maybe_force_demo_violation(brief, req, iteration)
-            await emit(job, "variant_proposed", {"iteration": iteration, "variant": brief.model_dump()})
+            await emit(job, "variant_proposed", {"iteration": iteration, "variant": brief.model_dump(), "live": brief_live})
 
-            candidate_image = await apply_edits(current_image, brief, req.constraints)
+            candidate_image, edit_live = await apply_edits(current_image, brief, req.constraints)
             candidate_text = _updated_text(current_text, brief)
             candidate_attention = await predict_saliency_openai(candidate_image, candidate_text)
-            candidate_score = await score_regions(
+            candidate_score, candidate_score_live = await score_regions(
                 candidate_image,
                 candidate_attention.saliency_map,
                 candidate_text,
@@ -195,6 +207,7 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
                     "iteration": iteration,
                     "variant_id": brief.id,
                     "image_url": image_url,
+                    "live": edit_live,
                 },
             )
 
@@ -208,6 +221,7 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
                     "fixate_score": candidate_score.fixate_score,
                     "delta": delta,
                     "accepted": accepted,
+                    "live": candidate_score_live,
                 },
             )
             variant_record = _variant_record(
@@ -225,15 +239,15 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
                 current_attention = candidate_attention
                 best_variant = variant_record
                 (job.artifact_dir / "best.png").write_bytes(candidate_image)
-                heatmap_png = render_heatmap_overlay(current_image, current_attention.saliency_map)
+                heatmap_png = render_heatmap_overlay(current_image, current_attention.saliency_map, current_attention.regions)
                 (job.artifact_dir / "heatmap.png").write_bytes(heatmap_png)
-                reactions = await run_buyer_panel(current, current_text)
-                diagnosis = await diagnose(current, reactions)
-                await emit(job, "buyer_panel", {"iteration": iteration, "reactions": [r.model_dump() for r in reactions]})
-                await emit(job, "diagnosis_ready", {"iteration": iteration, "diagnosis": diagnosis.model_dump()})
+                reactions, reactions_live = await run_buyer_panel(current, current_text)
+                diagnosis, diagnosis_live = await diagnose(current, reactions)
+                await emit(job, "buyer_panel", {"iteration": iteration, "reactions": [r.model_dump() for r in reactions], "live": reactions_live})
+                await emit(job, "diagnosis_ready", {"iteration": iteration, "diagnosis": diagnosis.model_dump(), "live": diagnosis_live})
             await emit(job, "iteration_done", {"iteration": iteration, "accepted": accepted})
 
-        experiment_plan = await build_experiment_plan(best_variant, req.target_customer, req.goal)
+        experiment_plan, experiment_plan_live = await build_experiment_plan(best_variant, req.target_customer, req.goal)
         job.result = {
             "job_id": job.job_id,
             "image_url": f"/job/{job.job_id}/image",
@@ -259,6 +273,7 @@ async def run_job(req: OptimizeRequest, job: Job) -> None:
                 "baseline_score": baseline.fixate_score,
                 "final_score": current.fixate_score,
                 "delta": round(current.fixate_score - baseline.fixate_score, 1),
+                "live": experiment_plan_live,
             },
         )
     except Exception as exc:

@@ -22,9 +22,9 @@ async def build_experiment_plan(
     best_variant: VariantResult | None,
     target_customer: str,
     goal: str,
-) -> ExperimentPlan:
+) -> tuple[ExperimentPlan, bool]:
     fallback = _fallback_plan(best_variant, target_customer, goal)
-    data = await complete_json(
+    data, live = await complete_json(
         "You are an experiment planner. Return strict JSON for hypothesis, recommended_channel, target_audience, success_metric, ab_test_setup, next_step.",
         json.dumps(
             {
@@ -47,4 +47,4 @@ async def build_experiment_plan(
         value = merged.get(key, "")
         if not isinstance(value, str):
             merged[key] = json.dumps(value, ensure_ascii=True)
-    return ExperimentPlan(**merged)
+    return ExperimentPlan(**merged), live

@@ -8,7 +8,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-from models import CaptureResult
+from models import CaptureResult, ElementBox
 
 
 VIEWPORT = {"width": 1280, "height": 800}
@@ -70,6 +70,38 @@ async def _extract_visible_text(page) -> str:
     )
 
 
+async def _extract_element_boxes(page) -> list[ElementBox]:
+    raw = await page.evaluate(
+        """
+        () => {
+          const selector = 'h1,h2,h3,h4,h5,h6,p,button,a,img,svg,input,textarea,li,[role="button"]';
+          const els = Array.from(document.querySelectorAll(selector));
+          const boxes = [];
+          for (const el of els) {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 16 || rect.height < 10) continue;
+            const top = rect.top + window.scrollY;
+            const left = rect.left + window.scrollX;
+            boxes.push({
+              tag: el.tagName.toLowerCase(),
+              bbox: [
+                Math.round(left),
+                Math.round(top),
+                Math.round(left + rect.width),
+                Math.round(top + rect.height),
+              ],
+            });
+            if (boxes.length >= 400) break;
+          }
+          return boxes;
+        }
+        """
+    )
+    return [ElementBox(tag=item["tag"], bbox=item["bbox"]) for item in raw]
+
+
 async def _scroll_full_page(page) -> None:
     await page.evaluate(
         """
@@ -94,10 +126,11 @@ async def _scroll_full_page(page) -> None:
 async def _capture_loaded_page(page) -> CaptureResult:
     await _scroll_full_page(page)
     text = await _extract_visible_text(page)
+    element_boxes = await _extract_element_boxes(page)
     png = await page.screenshot(type="png", full_page=True)
     with Image.open(io.BytesIO(png)) as img:
         width, height = img.size
-    return CaptureResult(screenshot_png=png, text=text, width=width, height=height)
+    return CaptureResult(screenshot_png=png, text=text, width=width, height=height, element_boxes=element_boxes)
 
 
 async def capture_url(url: str) -> CaptureResult:

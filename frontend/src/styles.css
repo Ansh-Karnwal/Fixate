@@ -232,15 +232,85 @@ textarea {
   font-size: 13px;
 }
 
-.previewPanel img {
-  display: block;
-  width: 100%;
-  max-height: 470px;
-  object-fit: contain;
+.previewScroll {
+  max-height: 600px;
+  overflow-y: auto;
+  margin-top: 12px;
   background: #f8faf7;
   border: 1px solid #e4eae1;
   border-radius: 8px;
-  margin-top: 12px;
+}
+
+.heatmapStage {
+  position: relative;
+  line-height: 0;
+}
+
+.previewPanel img {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: zoom-in;
+}
+
+.fixMarkerWrap {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  line-height: normal;
+}
+
+.fixHotspot {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fixHotspot:hover {
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(46, 27, 110, 0.55);
+}
+
+.fixHotspot.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(46, 27, 110, 0.9);
+}
+
+.fixPopover {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  max-width: 60vw;
+  background: #17211b;
+  color: #fff;
+  padding: 11px 13px;
+  border-radius: 9px;
+  font-size: 12px;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(23, 33, 27, 0.32);
+}
+
+.fixPopover strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.fixPopover p {
+  margin: 0;
+  color: #d8e2db;
+  line-height: 1.5;
+}
+
+.heatmapHint {
+  margin-top: 10px;
+  color: #66736a;
+  font-size: 12px;
 }
 
 .scorePanel {
@@ -385,8 +455,29 @@ dd {
 }
 
 .event strong {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
+}
+
+.liveBadge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.liveBadge.live {
+  background: #edf8f0;
+  color: #0d7d59;
+}
+
+.liveBadge.fallback {
+  background: #fff3dd;
+  color: #a36d0d;
 }
 
 pre {

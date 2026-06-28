@@ -19,12 +19,19 @@ def _fallback_diagnosis(score: ScoreResult, reactions: list[BuyerReaction]) -> D
     )
 
 
-async def diagnose(score: ScoreResult, reactions: list[BuyerReaction]) -> Diagnosis:
+async def diagnose(score: ScoreResult, reactions: list[BuyerReaction]) -> tuple[Diagnosis, bool]:
     fallback = _fallback_diagnosis(score, reactions)
-    data = await complete_json(
+    data, live = await complete_json(
         "You are a conversion strategist. Return strict JSON matching working, ignored, hurting_conversion, summary.",
         json.dumps({"score": score.model_dump(), "buyer_reactions": [r.model_dump() for r in reactions]}),
         fallback.model_dump(),
     )
-    return Diagnosis(**{**fallback.model_dump(), **data})
+    merged = {**fallback.model_dump(), **data}
+    for key in ("working", "ignored", "hurting_conversion"):
+        value = merged.get(key)
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            merged[key] = getattr(fallback, key)
+    if not isinstance(merged.get("summary"), str):
+        merged["summary"] = fallback.summary
+    return Diagnosis(**merged), live
 

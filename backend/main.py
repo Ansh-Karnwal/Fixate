@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from models import CaptureRequest, CaptureResponse, OptimizeRequest
 from agents.openai_client import openai_live_enabled
-from pipeline.attention import predict_saliency_openai, render_heatmap_overlay
+from pipeline.attention import explain_region, predict_saliency_openai, render_heatmap_overlay
 from pipeline.capture import capture_html, capture_url
 from pipeline.loop import create_job, jobs
 from pipeline.scorer import score_regions
@@ -104,7 +104,7 @@ async def capture_image(capture_id: str):
 async def capture_heatmap(capture_id: str):
     screenshot_png, text = _read_capture(capture_id)
     attention = await predict_saliency_openai(screenshot_png, text)
-    png = render_heatmap_overlay(screenshot_png, attention.saliency_map)
+    png = render_heatmap_overlay(screenshot_png, attention.saliency_map, attention.regions)
     path = _capture_dir(capture_id) / "heatmap.png"
     path.write_bytes(png)
     np.save(_capture_dir(capture_id) / "saliency.npy", attention.saliency_map)
@@ -116,8 +116,8 @@ async def score_capture(capture_id: str):
     screenshot_png, text = _read_capture(capture_id)
     saliency_path = _capture_dir(capture_id) / "saliency.npy"
     saliency = np.load(saliency_path) if saliency_path.exists() else None
-    result = await score_regions(screenshot_png, saliency, text)
-    return result.model_dump()
+    result, live = await score_regions(screenshot_png, saliency, text)
+    return {**result.model_dump(), "live": live}
 
 
 @app.post("/optimize")
@@ -184,6 +184,24 @@ async def job_heatmap(job_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Job heatmap not found.")
     return FileResponse(path, media_type="image/png")
+
+
+@app.get("/job/{job_id}/region/{rank}/explain")
+async def job_region_explain(job_id: str, rank: int):
+    job = jobs.get(job_id)
+    if not job or not job.artifact_dir:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if rank in job.region_explanations:
+        return {"rank": rank, "explanation": job.region_explanations[rank], "cached": True}
+    region = next((r for r in job.attention_regions if r.rank == rank), None)
+    if region is None:
+        raise HTTPException(status_code=404, detail="Region not found.")
+    screenshot_path = job.artifact_dir / "screenshot.png"
+    if not screenshot_path.exists():
+        raise HTTPException(status_code=404, detail="Capture not found.")
+    explanation = await explain_region(screenshot_path.read_bytes(), region, job.heatmap_text)
+    job.region_explanations[rank] = explanation
+    return {"rank": rank, "explanation": explanation, "cached": False}
 
 
 @app.get("/job/{job_id}/variant/{iteration}/image")

@@ -12,6 +12,7 @@ type Constraints = {
   aggressiveness: Aggressiveness
 }
 type StreamEvent = { seq: number; event: string; ts: number; [key: string]: any }
+type FixationRegion = { rank: number; bbox: number[]; saliency_score: number; peak_coords: number[]; reason?: string }
 type Variant = {
   id: string
   target_blocker: string
@@ -90,6 +91,12 @@ function App() {
   const [imageUrl, setImageUrl] = useState('')
   const [heatmapUrl, setHeatmapUrl] = useState('')
   const [preview, setPreview] = useState<'heatmap' | 'screenshot' | 'best'>('heatmap')
+  const [regions, setRegions] = useState<FixationRegion[]>([])
+  const [scanPathCount, setScanPathCount] = useState(0)
+  const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null)
+  const [activeRank, setActiveRank] = useState<number | null>(null)
+  const [explanations, setExplanations] = useState<Record<number, string>>({})
+  const [explainLoading, setExplainLoading] = useState<number | null>(null)
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => () => esRef.current?.close(), [])
@@ -151,6 +158,9 @@ function App() {
     setJobId('')
     setImageUrl('')
     setHeatmapUrl('')
+    setRegions([])
+    setActiveRank(null)
+    setExplanations({})
     try {
       const response = await fetch('/optimize', {
         method: 'POST',
@@ -176,6 +186,11 @@ function App() {
           if (event.event === 'heatmap_ready' && event.heatmap_url) {
             setHeatmapUrl(event.heatmap_url)
             setPreview('heatmap')
+            if (Array.isArray(event.regions)) setRegions(event.regions as FixationRegion[])
+            if (typeof event.scan_path_count === 'number') setScanPathCount(event.scan_path_count)
+            if (event.image_width && event.image_height) setImageDims({ w: event.image_width, h: event.image_height })
+            setActiveRank(null)
+            setExplanations({})
           }
           if (event.event === 'variant_applied' && event.image_url) setPreview('best')
           if (event.event === 'job_complete') {
@@ -214,6 +229,26 @@ function App() {
     }
     setConstraints(next)
     startJob(next)
+  }
+
+  async function explainRegion(rank: number) {
+    if (activeRank === rank) {
+      setActiveRank(null)
+      return
+    }
+    setActiveRank(rank)
+    if (explanations[rank] || !jobId) return
+    setExplainLoading(rank)
+    try {
+      const response = await fetch(`/job/${jobId}/region/${rank}/explain`)
+      if (!response.ok) throw new Error(await response.text())
+      const data = await response.json()
+      setExplanations(prev => ({ ...prev, [rank]: data.explanation }))
+    } catch (err) {
+      setExplanations(prev => ({ ...prev, [rank]: 'Could not load explanation.' }))
+    } finally {
+      setExplainLoading(null)
+    }
   }
 
   const previewSrc =
@@ -291,7 +326,45 @@ function App() {
                   <button className={preview === 'best' ? 'active' : ''} onClick={() => setPreview('best')}>Best</button>
                 </div>
               </div>
-              {previewSrc ? <img src={previewSrc} alt="Fixate visual preview" /> : <div className="empty">Run a job to generate the capture, heatmap, and edited image.</div>}
+              {previewSrc ? (
+                <div className="previewScroll">
+                  <div className="heatmapStage">
+                    <img
+                      src={previewSrc}
+                      alt="Fixate visual preview"
+                      onClick={() => window.open(previewSrc, '_blank')}
+                      title="Click to open full size"
+                    />
+                    {preview === 'heatmap' && imageDims && regions
+                      .filter(region => region.rank <= scanPathCount)
+                      .map(region => (
+                        <div
+                          key={region.rank}
+                          className="fixMarkerWrap"
+                          style={{
+                            left: `${(region.peak_coords[0] / imageDims.w) * 100}%`,
+                            top: `${(region.peak_coords[1] / imageDims.h) * 100}%`,
+                          }}
+                        >
+                          <button
+                            className={`fixHotspot ${activeRank === region.rank ? 'active' : ''}`}
+                            onClick={() => explainRegion(region.rank)}
+                            title={`Why is #${region.rank} marked? (click)`}
+                          />
+                          {activeRank === region.rank && (
+                            <div className="fixPopover">
+                              <strong>Fixation point #{region.rank}</strong>
+                              <p>{explainLoading === region.rank ? 'Analyzing this point…' : (explanations[region.rank] || '')}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : <div className="empty">Run a job to generate the capture, heatmap, and edited image.</div>}
+              {preview === 'heatmap' && scanPathCount > 0 && (
+                <p className="heatmapHint">Click a numbered point to learn why it draws attention.</p>
+              )}
             </section>
 
             <section className="panel scorePanel">
@@ -346,7 +419,14 @@ function App() {
                   <article key={event.seq} className={`event ${event.event === 'edit_blocked' ? 'blocked' : ''}`}>
                     {event.event === 'edit_blocked' ? <Ban size={15} /> : <Activity size={15} />}
                     <div>
-                      <strong>{labels[event.event] || event.event}</strong>
+                      <strong>
+                        {labels[event.event] || event.event}
+                        {typeof event.live === 'boolean' && (
+                          <span className={`liveBadge ${event.live ? 'live' : 'fallback'}`}>
+                            {event.live ? 'OpenAI' : 'fallback'}
+                          </span>
+                        )}
+                      </strong>
                       <pre>{JSON.stringify(event, null, 2)}</pre>
                     </div>
                   </article>

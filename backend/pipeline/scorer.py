@@ -142,10 +142,10 @@ async def _openai_score_result(
     text: str,
     regions: list[FixationRegion],
     fallback: ScoreResult,
-) -> ScoreResult:
+) -> tuple[ScoreResult, bool]:
     if not openai_live_enabled():
-        return fallback
-    data = await complete_vision_json(
+        return fallback, False
+    data, live = await complete_vision_json(
         "You are Fixate's OpenAI buyer-response scorer. Return strict JSON only.",
         (
             "Score this marketing asset using buyer psychology. Use these exact seven signals "
@@ -161,6 +161,8 @@ async def _openai_score_result(
         screenshot_png,
         fallback.model_dump(),
     )
+    if not live:
+        return fallback, False
     try:
         scored_regions: list[RegionScore] = []
         raw_regions = data.get("regions") if isinstance(data.get("regions"), list) else []
@@ -185,21 +187,24 @@ async def _openai_score_result(
             for signal in SIGNALS
         }
         blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else fallback.blockers
-        return ScoreResult(
-            fixate_score=round(max(0.0, min(100.0, float(data.get("fixate_score", fallback.fixate_score)))), 1),
-            signal_scores=signal_scores,
-            regions=scored_regions,
-            blockers=[str(b) for b in blockers[:5]],
+        return (
+            ScoreResult(
+                fixate_score=round(max(0.0, min(100.0, float(data.get("fixate_score", fallback.fixate_score)))), 1),
+                signal_scores=signal_scores,
+                regions=scored_regions,
+                blockers=[str(b) for b in blockers[:5]],
+            ),
+            True,
         )
     except Exception:
-        return fallback
+        return fallback, False
 
 
 async def score_regions(
     screenshot_png: bytes,
     saliency_map: np.ndarray | None,
     text: str,
-) -> ScoreResult:
+) -> tuple[ScoreResult, bool]:
     if saliency_map is None:
         attention = predict_saliency(screenshot_png)
         saliency_map = attention.saliency_map

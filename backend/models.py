@@ -18,11 +18,17 @@ BuyerSignal = Literal[
 ZoneType = Literal["power_zone", "attention_trap", "hidden_value", "dead_zone"]
 
 
+class ElementBox(BaseModel):
+    tag: str
+    bbox: list[int] = Field(min_length=4, max_length=4)
+
+
 class CaptureResult(BaseModel):
     screenshot_png: bytes
     text: str
     width: int
     height: int
+    element_boxes: list[ElementBox] = Field(default_factory=list)
 
 
 class CaptureRequest(BaseModel):
@@ -49,6 +55,7 @@ class FixationRegion(BaseModel):
     bbox: list[int] = Field(min_length=4, max_length=4)
     saliency_score: float
     peak_coords: list[int] = Field(min_length=2, max_length=2)
+    reason: str = ""
 
 
 class RegionScore(BaseModel):
