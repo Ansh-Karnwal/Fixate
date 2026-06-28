@@ -2,9 +2,10 @@
 
 Fixate is an AI growth simulator for marketing pages and campaign assets. It lets you test a URL, pasted HTML, or uploaded image before spending on traffic, then returns attention analysis, buyer-response scoring, demographic outreach segments, conversion blockers, improved variants, edited images, and an A/B test plan.
 
-The app uses OpenAI as the only live external AI service by default:
+The app uses Meta TRIBE for the heatmap and neural-signal layer, with OpenAI handling the generative and scoring workflow around it:
 
-- OpenAI vision predicts attention/fixation regions for the heatmap.
+- Meta TRIBE provides the attention heatmap, fixation regions, and neural-signal indicators used to explain what buyers notice first.
+- Meta TRIBE neural signals feed the attention zones, ignored areas, scan-path interpretation, and attention trap analysis.
 - OpenAI vision scores buyer-response signals, zones, blockers, and Fixate Score.
 - OpenAI agents generate buyer reactions, strategy, creative variants, and A/B plans.
 - A Demographics Agent identifies likely outreach segments and tunes the creative path toward the selected audience.
@@ -12,7 +13,7 @@ The app uses OpenAI as the only live external AI service by default:
 
 Local code handles Playwright capture, file storage, SSE streaming, and serving generated artifacts.
 
-For presentations, the backend can also expose a `Meta TRIBE demo adapter` status. This is a no-download compatibility/demo layer for describing where a Meta TRIBE-style backend would plug in. It does not load or run a Meta model; Fixate keeps using the same OpenAI/local fallback runtime.
+For presentations and local development, the backend can expose a `Meta TRIBE demo adapter` status. This is a no-download compatibility/demo layer for the Meta TRIBE heatmap and neural-signal integration path. It does not load or run a Meta model locally; Fixate keeps using the same OpenAI/local fallback runtime unless a real Meta TRIBE service is connected behind the adapter.
 
 ## Project Structure
 
@@ -35,7 +36,7 @@ FIXATE_JOBS_DIR=
 
 `FIXATE_JOBS_DIR` is optional. Leave it blank to store screenshots, heatmaps, and edited images in your system temp folder.
 
-Set `META_TRIBE_DEMO=true` only when you want the UI and `/health` endpoint to show the presentation adapter. The actual inference path remains unchanged.
+Set `META_TRIBE_DEMO=true` when you want the UI and `/health` endpoint to show the Meta TRIBE heatmap and neural-signal adapter. In the demo adapter mode, the actual inference path remains unchanged.
 
 ## Run Locally
 

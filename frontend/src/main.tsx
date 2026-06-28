@@ -2,13 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Activity,
+  ArrowRight,
   Ban,
   Brain,
   Crosshair,
   Eye,
   FileCode2,
   Image as ImageIcon,
+  KeyRound,
+  LineChart,
   Lock,
+  Mail,
   MousePointerClick,
   Pencil,
   Play,
@@ -21,6 +25,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react'
+import heroImage from './assets/fixate-hero.png'
 import './styles.css'
 
 type SourceMode = 'url' | 'html' | 'image'
@@ -59,17 +64,6 @@ type Variant = {
   explanation?: string
 }
 type BuyerReaction = { dimension: string; severity: string; blocker: string; explanation: string }
-type ApiStatus = {
-  health?: {
-    openai_configured: boolean
-    openai_required: boolean
-    openai_model: string
-    provider_label?: string
-    runtime_label?: string
-    meta_tribe_demo?: boolean
-  }
-  debug?: { ok: boolean; model: string; error_type?: string; error?: string; response?: string }
-}
 type Result = {
   job_id: string
   source_type: SourceMode
@@ -141,7 +135,150 @@ function compactEvent(event: StreamEvent) {
   return JSON.stringify(keep, null, 2)
 }
 
+function LandingPage({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
+  return (
+    <main className="marketingShell">
+      <nav className="marketingNav">
+        <button className="brandButton" onClick={onStart}>
+          <Target size={18} />
+          <span>Fixate</span>
+        </button>
+        <div className="navLinks">
+          <span>Attention</span>
+          <span>Audience</span>
+          <span>Experiments</span>
+        </div>
+        <div className="navActions">
+          <button className="navGhost" onClick={onLogin}>Log in</button>
+          <button className="navPrimary" onClick={onStart}>
+            Launch lab
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      </nav>
+
+      <section className="hero">
+        <img src={heroImage} alt="Fixate creative analysis dashboard" />
+        <div className="heroOverlay">
+          <div className="heroInner">
+            <div className="heroCopy">
+              <span className="eyebrow">Pre-launch creative intelligence</span>
+              <h1>Fixate</h1>
+              <p>Predict buyer attention, diagnose conversion blockers, and generate stronger campaign variants before paid traffic starts.</p>
+              <div className="heroActions">
+                <button className="heroPrimary" onClick={onStart}>
+                  Start analysis
+                  <ArrowRight size={18} />
+                </button>
+                <button className="heroSecondary" onClick={onLogin}>Sign in</button>
+              </div>
+            </div>
+
+            <div className="heroStats" aria-label="Fixate performance summary">
+              <article>
+                <span>Fixate Score</span>
+                <strong>84</strong>
+              </article>
+              <article>
+                <span>Attention traps</span>
+                <strong>3</strong>
+              </article>
+              <article>
+                <span>Best variant lift</span>
+                <strong>+18</strong>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="landingStrip">
+        <span>URL</span>
+        <span>HTML</span>
+        <span>Images</span>
+        <span>Heatmaps</span>
+        <span>Segments</span>
+        <span>A/B plans</span>
+      </section>
+
+      <section className="landingMetrics">
+        <article>
+          <Eye size={19} />
+          <strong>Attention heatmaps</strong>
+          <span>Scan paths, fixation zones, ignored value, and traps.</span>
+        </article>
+        <article>
+          <Users size={19} />
+          <strong>Audience fit</strong>
+          <span>Demographic lenses and outreach-ready positioning.</span>
+        </article>
+        <article>
+          <LineChart size={19} />
+          <strong>A/B plan</strong>
+          <span>Winning variants packaged with launch hypotheses.</span>
+        </article>
+      </section>
+    </main>
+  )
+}
+
+function LoginPage({ onEnter, onBack }: { onEnter: () => void; onBack: () => void }) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onEnter()
+  }
+
+  return (
+    <main className="loginShell">
+      <section className="loginVisual">
+        <button className="brandButton" onClick={onBack}>
+          <Target size={18} />
+          <span>Fixate</span>
+        </button>
+        <div>
+          <span className="eyebrow">Campaign lab access</span>
+          <h1>Enter the workspace</h1>
+          <p>Use any login path for the demo. Each route opens the same Fixate analysis platform.</p>
+        </div>
+      </section>
+
+      <section className="loginPanel">
+        <div>
+          <h2>Login</h2>
+          <p>Continue to creative testing and buyer-response scoring.</p>
+        </div>
+        <form onSubmit={submit}>
+          <label>
+            Email
+            <span className="inputIcon">
+              <Mail size={16} />
+              <input type="email" placeholder="team@company.com" />
+            </span>
+          </label>
+          <label>
+            Password
+            <span className="inputIcon">
+              <KeyRound size={16} />
+              <input type="password" placeholder="Password" />
+            </span>
+          </label>
+          <button className="loginPrimary" type="submit">
+            Continue
+            <ArrowRight size={17} />
+          </button>
+        </form>
+        <div className="loginOptions">
+          <button onClick={onEnter}>Continue with Google</button>
+          <button onClick={onEnter}>Continue with GitHub</button>
+          <button onClick={onEnter}>Use demo account</button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function App() {
+  const [view, setView] = useState<'landing' | 'login' | 'app'>('landing')
   const [mode, setMode] = useState<SourceMode>('url')
   const [url, setUrl] = useState('https://example.com')
   const [html, setHtml] = useState('<main><h1>Grow faster with Fixate</h1><p>See what buyers notice before you launch.</p><button>Start now</button></main>')
@@ -159,7 +296,6 @@ function App() {
   const [result, setResult] = useState<Result | null>(null)
   const [discoveredSegments, setDiscoveredSegments] = useState<DemographicSegment[]>([])
   const [selectedSegment, setSelectedSegment] = useState<DemographicSegment | null>(null)
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({})
   const [jobId, setJobId] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -176,22 +312,6 @@ function App() {
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => () => esRef.current?.close(), [])
-
-  useEffect(() => {
-    async function checkOpenAI() {
-      try {
-        const health = await fetch('/health').then(response => response.json())
-        setApiStatus(prev => ({ ...prev, health }))
-        if (health.openai_configured) {
-          const debug = await fetch('/debug/openai').then(response => response.json())
-          setApiStatus({ health, debug })
-        }
-      } catch {
-        setApiStatus({})
-      }
-    }
-    checkOpenAI()
-  }, [])
 
   const scorePoints = useMemo(() => {
     const points: { label: string; score: number }[] = []
@@ -386,6 +506,14 @@ function App() {
         ? imageUrl || result?.image_url
         : heatmapUrl || result?.heatmap_url
 
+  if (view === 'landing') {
+    return <LandingPage onStart={() => setView('login')} onLogin={() => setView('login')} />
+  }
+
+  if (view === 'login') {
+    return <LoginPage onEnter={() => setView('app')} onBack={() => setView('landing')} />
+  }
+
   return (
     <main className="shell">
       <section className="workspace">
@@ -399,21 +527,6 @@ function App() {
             <span>{result?.final.fixate_score ?? scorePoints.at(-1)?.score ?? '--'}</span>
           </div>
         </header>
-
-        <section className={`apiBanner ${apiStatus.debug?.ok ? 'ok' : apiStatus.debug ? 'bad' : ''}`}>
-          <strong>{apiStatus.health?.provider_label || 'OpenAI API'}</strong>
-          <span>
-            {apiStatus.health?.meta_tribe_demo
-              ? `Demo adapter enabled; runtime: ${apiStatus.health.runtime_label || 'existing pipeline'}`
-              : apiStatus.debug
-              ? apiStatus.debug.ok
-                ? `Live on ${apiStatus.debug.model}`
-                : `${apiStatus.debug.error_type || 'Error'} on ${apiStatus.debug.model}: ${apiStatus.debug.error || 'OpenAI call failed'}`
-              : apiStatus.health
-                ? `Configured for ${apiStatus.health.openai_model}`
-                : 'Checking backend status...'}
-          </span>
-        </section>
 
         <section className="agentBoard">
           {agentBoard.map(({ agent, task, icon: Icon }) => (
