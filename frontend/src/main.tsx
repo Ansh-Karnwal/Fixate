@@ -6,9 +6,11 @@ import {
   ArrowRight,
   Ban,
   Brain,
+  Check,
   Crosshair,
   Eye,
   FileCode2,
+  Gauge,
   Image as ImageIcon,
   KeyRound,
   LineChart,
@@ -25,6 +27,7 @@ import {
   Unlock,
   Upload,
   Users,
+  Zap,
 } from 'lucide-react'
 import { api } from '../convex/_generated/api'
 import heroImage from './assets/fixate-hero.png'
@@ -152,18 +155,39 @@ const eventMeta: Record<string, { label: string; agent: string; icon: React.Elem
   job_error: { label: 'Job error', agent: 'System', icon: Ban },
 }
 
-const agentBoard = [
-  { agent: 'Capture Agent', task: 'Ingest URL, HTML, screenshots, ads, flyers, social posts, and general images.', icon: Upload },
-  { agent: 'Demographics Agent', task: 'Find outreach segments and select the audience lens for the run.', icon: Users },
-  { agent: 'Attention Agent', task: 'Predict scan path, fixation points, heatmap zones, and ignored areas.', icon: Eye },
-  { agent: 'Buyer-Response Scorer', task: 'Score trust, desire, memory, relevance, cognitive load, and CTA strength.', icon: Brain },
-  { agent: 'Buyer Panel Agents', task: 'Simulate confusion, trust, desire, urgency, and CTA reactions.', icon: MousePointerClick },
-  { agent: 'Growth Strategist Agent', task: 'Connect attention patterns to conversion blockers.', icon: Target },
-  { agent: 'Creative Agent', task: 'Write demographic-tuned copy, CTA, layout, and visual instructions.', icon: Pencil },
-  { agent: 'Image Editing Agent', task: 'Generate a tuned creative variant from the asset.', icon: Sparkles },
-  { agent: 'Constraint Guard', task: 'Protect locked brand, logo, legal, and layout rules.', icon: Lock },
-  { agent: 'Experiment Agent', task: 'Package the winning variant into an A/B launch plan.', icon: TestTube2 },
+// Order matches the backend's actual SSE emission sequence (pipeline/loop.py):
+// capture -> attention(heatmap) -> scoring -> audience(demographics) -> panel -> diagnosis -> creative -> image -> guard -> experiment
+const pipelineStages = [
+  { key: 'capture', label: 'Capture', icon: Upload },
+  { key: 'attention', label: 'Attention', icon: Eye },
+  { key: 'scoring', label: 'Scoring', icon: Brain },
+  { key: 'demographics', label: 'Audience', icon: Users },
+  { key: 'panel', label: 'Buyer Panel', icon: MousePointerClick },
+  { key: 'diagnosis', label: 'Diagnosis', icon: Target },
+  { key: 'creative', label: 'Creative', icon: Pencil },
+  { key: 'image', label: 'Image Edit', icon: Sparkles },
+  { key: 'guard', label: 'Constraints', icon: Lock },
+  { key: 'experiment', label: 'A/B Plan', icon: TestTube2 },
 ]
+
+const eventToStage: Record<string, number> = {
+  capture_started: 0,
+  capture_done: 0,
+  heatmap_ready: 1,
+  scored: 2,
+  demographics_started: 3,
+  demographics_ready: 3,
+  buyer_panel: 4,
+  diagnosis_ready: 5,
+  blocker_found: 5,
+  variant_proposed: 6,
+  variant_applied: 7,
+  variant_image_failed: 7,
+  variant_scored: 7,
+  edit_blocked: 8,
+  iteration_done: 7,
+  job_complete: 9,
+}
 
 const defaultConstraints: Constraints = {
   brand: { colors: ['#0D7D59'], fonts: ['Inter'], tone: 'clear, confident, never hypey', logo_present: false },
@@ -193,88 +217,103 @@ function compactEvent(event: StreamEvent) {
   return JSON.stringify(keep, null, 2)
 }
 
+function TopNav({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
+  return (
+    <nav className="topNav">
+      <button className="brand" onClick={onStart}>
+        <span className="brandMark"><Target size={17} /></span>
+        <span>Fixate</span>
+      </button>
+      <div className="navLinks">
+        <span>Attention</span>
+        <span>Audience</span>
+        <span>Variants</span>
+        <span>Experiments</span>
+      </div>
+      <div className="navActions">
+        <button className="ghost" onClick={onLogin}>Log in</button>
+        <button className="cta" onClick={onStart}>
+          Launch lab
+          <ArrowRight size={16} />
+        </button>
+      </div>
+    </nav>
+  )
+}
+
 function LandingPage({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
   return (
     <main className="marketingShell">
-      <nav className="marketingNav">
-        <button className="brandButton" onClick={onStart}>
-          <Target size={18} />
-          <span>Fixate</span>
-        </button>
-        <div className="navLinks">
-          <span>Attention</span>
-          <span>Audience</span>
-          <span>Experiments</span>
-        </div>
-        <div className="navActions">
-          <button className="navGhost" onClick={onLogin}>Log in</button>
-          <button className="navPrimary" onClick={onStart}>
-            Launch lab
-            <ArrowRight size={16} />
-          </button>
-        </div>
-      </nav>
+      <TopNav onStart={onStart} onLogin={onLogin} />
 
       <section className="hero">
-        <img src={heroImage} alt="Fixate creative analysis dashboard" />
-        <div className="heroOverlay">
-          <div className="heroInner">
-            <div className="heroCopy">
-              <span className="eyebrow">Pre-launch creative intelligence</span>
-              <h1>Fixate</h1>
-              <p>Predict buyer attention, diagnose conversion blockers, and generate stronger campaign variants before paid traffic starts.</p>
-              <div className="heroActions">
-                <button className="heroPrimary" onClick={onStart}>
-                  Start analysis
-                  <ArrowRight size={18} />
-                </button>
-                <button className="heroSecondary" onClick={onLogin}>Sign in</button>
-              </div>
-            </div>
-
-            <div className="heroStats" aria-label="Fixate performance summary">
-              <article>
-                <span>Fixate Score</span>
-                <strong>84</strong>
-              </article>
-              <article>
-                <span>Attention traps</span>
-                <strong>3</strong>
-              </article>
-              <article>
-                <span>Best variant lift</span>
-                <strong>+18</strong>
-              </article>
-            </div>
+        <div className="heroCopy">
+          <span className="eyebrow">Pre-launch creative intelligence</span>
+          <h1>Test the ad <span className="grad">before</span> you pay for the click.</h1>
+          <p className="lede">
+            Fixate simulates how your target buyer experiences a campaign — what they notice,
+            what they ignore, and what blocks the sale — then generates stronger variants
+            within your brand rules and re-scores them.
+          </p>
+          <div className="heroActions">
+            <button className="cta" onClick={onStart}>
+              Start a free analysis
+              <ArrowRight size={18} />
+            </button>
+            <button className="ghost" onClick={onLogin}>Sign in</button>
           </div>
+          <div className="heroProof">
+            <div><strong>84</strong><span>Avg Fixate Score</span></div>
+            <div><strong>+18</strong><span>Best variant lift</span></div>
+            <div><strong>10</strong><span>AI agents per run</span></div>
+          </div>
+        </div>
+
+        <div className="heroVisual">
+          <div className="heroFrame">
+            <img src={heroImage} alt="Fixate creative analysis dashboard" />
+          </div>
+          <div className="heroChip tl"><Eye size={15} /> Attention mapped</div>
+          <div className="heroChip br"><Sparkles size={15} /> Variant +18</div>
         </div>
       </section>
 
-      <section className="landingStrip">
+      <div className="logoStrip">
         <span>URL</span>
         <span>HTML</span>
         <span>Images</span>
-        <span>Heatmaps</span>
-        <span>Segments</span>
-        <span>A/B plans</span>
+        <span>Ads & flyers</span>
+        <span>Landing pages</span>
+        <span>Social posts</span>
+        <span>Emails</span>
+      </div>
+
+      <section className="features">
+        <article className="featureCard">
+          <span className="ic"><Eye size={20} /></span>
+          <strong>Attention heatmaps</strong>
+          <p>See the predicted scan path, fixation points, ignored value, and attention traps — then click any hotspot to ask why.</p>
+        </article>
+        <article className="featureCard">
+          <span className="ic"><Users size={20} /></span>
+          <strong>Audience fit</strong>
+          <p>Discover outreach-ready demographic segments and re-tune the creative for whichever buyer you want to win.</p>
+        </article>
+        <article className="featureCard">
+          <span className="ic"><LineChart size={20} /></span>
+          <strong>Variants + A/B plan</strong>
+          <p>Generate improved creatives within your locked brand rules, watch the score climb, and ship the winner with a launch plan.</p>
+        </article>
       </section>
 
-      <section className="landingMetrics">
-        <article>
-          <Eye size={19} />
-          <strong>Attention heatmaps</strong>
-          <span>Scan paths, fixation zones, ignored value, and traps.</span>
-        </article>
-        <article>
-          <Users size={19} />
-          <strong>Audience fit</strong>
-          <span>Demographic lenses and outreach-ready positioning.</span>
-        </article>
-        <article>
-          <LineChart size={19} />
-          <strong>A/B plan</strong>
-          <span>Winning variants packaged with launch hypotheses.</span>
-        </article>
+      <section className="bandCta">
+        <span className="eyebrow">No traffic required</span>
+        <h2>Know what works before launch day.</h2>
+        <p>Upload an asset, pick a buyer, set your goal. Fixate does the rest in one live run.</p>
+        <button className="cta" onClick={onStart}>
+          Launch the lab
+          <ArrowRight size={18} />
+        </button>
       </section>
     </main>
   )
@@ -289,21 +328,26 @@ function LoginPage({ onEnter, onBack }: { onEnter: () => void; onBack: () => voi
   return (
     <main className="loginShell">
       <section className="loginVisual">
-        <button className="brandButton" onClick={onBack}>
-          <Target size={18} />
+        <button className="brand" onClick={onBack}>
+          <span className="brandMark"><Target size={17} /></span>
           <span>Fixate</span>
         </button>
-        <div>
+        <div className="pitch">
           <span className="eyebrow">Campaign lab access</span>
           <h1>Enter the workspace</h1>
-          <p>Use any login path for the demo. Each route opens the same Fixate analysis platform.</p>
+          <p>Use any path for the demo — each route opens the same Fixate analysis platform.</p>
+          <div className="loginQuotes">
+            <div><Check size={16} /> Predict buyer attention before launch</div>
+            <div><Check size={16} /> Diagnose what blocks the conversion</div>
+            <div><Check size={16} /> Generate stronger variants within brand rules</div>
+          </div>
         </div>
       </section>
 
       <section className="loginPanel">
         <div>
-          <h2>Login</h2>
-          <p>Continue to creative testing and buyer-response scoring.</p>
+          <h2>Welcome back</h2>
+          <p className="sub">Continue to creative testing and buyer-response scoring.</p>
         </div>
         <form onSubmit={submit}>
           <label>
@@ -320,15 +364,16 @@ function LoginPage({ onEnter, onBack }: { onEnter: () => void; onBack: () => voi
               <input type="password" placeholder="Password" />
             </span>
           </label>
-          <button className="loginPrimary" type="submit">
+          <button className="cta loginPrimary" type="submit">
             Continue
             <ArrowRight size={17} />
           </button>
         </form>
+        <div className="divider">or</div>
         <div className="loginOptions">
           <button onClick={onEnter}>Continue with Google</button>
           <button onClick={onEnter}>Continue with GitHub</button>
-          <button onClick={onEnter}>Use demo account</button>
+          <button className="cta" onClick={onEnter}>Use demo account</button>
         </div>
       </section>
     </main>
@@ -381,7 +426,21 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
     return points
   }, [events])
 
-  const activeAgents = useMemo(() => new Set(events.map(event => event.agent || eventMeta[event.event]?.agent)), [events])
+  const isComplete = useMemo(() => !!result || events.some(event => event.event === 'job_complete'), [result, events])
+  const lastEvent = events[events.length - 1]
+  // Track the furthest stage reached so the active marker never jumps backwards
+  // (the backend re-emits low-index events like heatmap_ready during later iterations).
+  const currentStage = useMemo(() => {
+    let max = -1
+    events.forEach(event => {
+      const idx = eventToStage[event.event]
+      if (typeof idx === 'number' && idx > max) max = idx
+    })
+    return max
+  }, [events])
+  const progress = isComplete ? 100 : busy ? Math.min(96, Math.round(((currentStage + 1) / pipelineStages.length) * 100)) : 0
+  const generatingImage = busy && lastEvent?.event === 'variant_proposed'
+  const capturing = busy && !heatmapUrl && !imageUrl && !result
 
   const zoneCounts = useMemo(() => {
     const currentRegions = result?.final?.regions || result?.baseline?.regions || []
@@ -592,6 +651,8 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
         ? imageUrl || result?.image_url
         : heatmapUrl || result?.heatmap_url
   const latestScore = scorePoints[scorePoints.length - 1]?.score
+  const showGenOverlay = busy && (capturing || generatingImage)
+  const displayScore = result?.final.fixate_score ?? latestScore
 
   if (view === 'landing') {
     return <LandingPage onStart={() => setView('login')} onLogin={() => setView('login')} />
@@ -605,24 +666,68 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
     <main className="shell">
       <section className="workspace">
         <header className="topbar">
-          <div>
-            <h1>Fixate</h1>
-            <p>Simulate, segment, tune, and package pre-launch creative tests.</p>
+          <div className="lhs">
+            <button className="brand" onClick={() => setView('landing')}>
+              <span className="brandMark"><Target size={17} /></span>
+              <span>Fixate</span>
+            </button>
+            <span className="sub">Pre-launch creative intelligence lab</span>
           </div>
-          <div className="scoreBadge">
-            <Activity size={18} />
-            <span>{result?.final.fixate_score ?? latestScore ?? '--'}</span>
+          <div className="rhs">
+            <div className={`scoreBadge ${busy ? 'live' : ''}`}>
+              <Gauge size={16} />
+              <span className="lbl">Score</span>
+              <span className="val">{displayScore ?? '--'}</span>
+            </div>
           </div>
         </header>
 
-        <section className="agentBoard">
-          {agentBoard.map(({ agent, task, icon: Icon }) => (
-            <article key={agent} className={activeAgents.has(agent) ? 'active' : ''}>
-              <Icon size={17} />
-              <strong>{agent}</strong>
-              <span>{task}</span>
-            </article>
-          ))}
+        <section className={`pipeline ${busy ? 'running' : ''}`}>
+          <div className="pipelineTop">
+            <div className="pipelineStatus">
+              <span className={`statusDot ${isComplete ? 'done' : busy ? 'on' : ''}`} />
+              <div>
+                <div className="ttl">
+                  {isComplete ? 'Analysis complete' : busy ? (lastEvent ? eventMeta[lastEvent.event]?.label ?? 'Working…' : 'Starting run…') : 'Ready to run'}
+                </div>
+                <div className="meta">{jobId ? `job ${jobId.slice(0, 12)}` : '10 specialist agents · live SSE stream'}</div>
+              </div>
+            </div>
+            <div className="progressRing">
+              <svg width="54" height="54" viewBox="0 0 54 54">
+                <defs>
+                  <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#2fe6a8" />
+                    <stop offset="100%" stopColor="#7c93ff" />
+                  </linearGradient>
+                </defs>
+                <circle className="track" cx="27" cy="27" r="22" fill="none" strokeWidth="5" />
+                <circle
+                  className="fill"
+                  cx="27" cy="27" r="22" fill="none" strokeWidth="5"
+                  strokeDasharray={2 * Math.PI * 22}
+                  strokeDashoffset={2 * Math.PI * 22 * (1 - progress / 100)}
+                />
+              </svg>
+              <span className="pct">{progress}%</span>
+            </div>
+          </div>
+
+          <div className="flow">
+            {pipelineStages.map((stage, index) => {
+              const Icon = stage.icon
+              const done = isComplete || index < currentStage
+              const active = busy && !isComplete && index === currentStage
+              return (
+                <div key={stage.key} className={`node ${active ? 'active' : ''} ${done ? 'done' : ''}`}>
+                  <span className="connector" />
+                  <span className="dot"><Icon size={20} /></span>
+                  {done && <span className="check"><Check size={12} /></span>}
+                  <span className="nm">{stage.label}</span>
+                </div>
+              )
+            })}
+          </div>
         </section>
 
         <div className="appGrid">
@@ -654,7 +759,12 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
             <label>Goal<input value={goal} onChange={event => setGoal(event.target.value)} /></label>
             <label>Demographic focus<input value={demographicTarget} onChange={event => setDemographicTarget(event.target.value)} placeholder="Leave blank to let Fixate choose" /></label>
             <label className="check"><input type="checkbox" checked={autoFindDemographics} onChange={event => setAutoFindDemographics(event.target.checked)} /> Find product demographics</label>
-            <label>Iterations<input type="range" min={1} max={10} value={iterations} onChange={event => setIterations(Number(event.target.value))} /><span>{iterations}</span></label>
+            <label>Iterations
+              <div className="rangeRow">
+                <input type="range" min={1} max={10} value={iterations} onChange={event => setIterations(Number(event.target.value))} />
+                <span className="rangeVal">{iterations}</span>
+              </div>
+            </label>
 
             <div className="subhead"><Lock size={16} /> Brand & constraints</div>
             <div className="swatches">
@@ -676,17 +786,17 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
             <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'legal_text')} onChange={event => updateLock('legal_text', event.target.checked)} /> Lock legal text</label>
             <label className="check"><input type="checkbox" checked={constraints.locked_elements.some(item => item.type === 'layout')} onChange={event => updateLock('layout', event.target.checked, 'fixed')} /> Do not move layout</label>
 
-            <button className="primary" onClick={() => startJob()} disabled={busy}>
+            <button className="cta runBtn" onClick={() => startJob()} disabled={busy}>
               {busy ? <RefreshCw size={17} className="spin" /> : <Play size={17} />}
-              Run Fixate
+              {busy ? 'Running Fixate…' : 'Run Fixate'}
             </button>
             {error && <div className="error">{error}</div>}
 
             <section className="convexPanel">
               <div className="convexHead">
-                <strong>Convex Sync</strong>
-                <span className={convexSync.enabled ? 'online' : 'offline'}>
-                  {convexSync.enabled ? 'active' : 'not configured'}
+                <strong><Activity size={14} /> Convex Sync</strong>
+                <span className={`pill ${convexSync.enabled ? 'online' : 'offline'}`}>
+                  {convexSync.enabled ? 'active' : 'local only'}
                 </span>
               </div>
               <div className="historyList">
@@ -709,48 +819,71 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
             <section className="panel previewPanel">
               <div className="panelHeader">
                 <h2><Eye size={18} /> Attention Preview</h2>
-                <div className="segmented compact">
+                <div className="segmented compact three">
                   <button className={preview === 'heatmap' ? 'active' : ''} onClick={() => setPreview('heatmap')}>Heatmap</button>
                   <button className={preview === 'screenshot' ? 'active' : ''} onClick={() => setPreview('screenshot')}>Original</button>
                   <button className={preview === 'best' ? 'active' : ''} onClick={() => setPreview('best')}>Best</button>
                 </div>
               </div>
-              {previewSrc ? (
-                <div className="previewScroll">
-                  <div className="heatmapStage">
-                    <img src={previewSrc} alt="Fixate visual preview" onClick={() => window.open(previewSrc, '_blank')} title="Open full size" />
-                    {preview === 'heatmap' && imageDims && regions
-                      .filter(region => region.rank <= scanPathCount)
-                      .map(region => (
-                        <div
-                          key={region.rank}
-                          className="fixMarkerWrap"
-                          style={{
-                            left: `${(region.peak_coords[0] / imageDims.w) * 100}%`,
-                            top: `${(region.peak_coords[1] / imageDims.h) * 100}%`,
-                          }}
-                        >
-                          <button className={`fixHotspot ${activeRank === region.rank ? 'active' : ''}`} onClick={() => explainRegion(region.rank)} title={`Explain fixation #${region.rank}`} />
-                          {activeRank === region.rank && (
-                            <div className="fixPopover">
-                              <strong>Fixation point #{region.rank}</strong>
-                              <p>{explainLoading === region.rank ? 'Analyzing this point...' : (explanations[region.rank] || '')}</p>
-                            </div>
-                          )}
-                        </div>
-                      ))}
+              <div className="previewStage">
+                {showGenOverlay && (
+                  <div className="genOverlay">
+                    <div className="scan" />
+                    <div className="genOrb"><Sparkles size={28} /></div>
+                    <div className="gTitle">{generatingImage ? 'Generating creative variant' : 'Capturing your asset'}</div>
+                    <div className="gSub">
+                      {generatingImage ? 'Image Editing Agent is rendering a tuned creative' : 'Reading layout, copy, and visual hierarchy'}
+                      <span className="dots"><span /><span /><span /></span>
+                    </div>
                   </div>
-                </div>
-              ) : <div className="empty">Run a job to generate the capture, heatmap, and tuned image.</div>}
+                )}
+                {previewSrc ? (
+                  <div className="previewScroll">
+                    <div className="heatmapStage">
+                      <img key={previewSrc} className="reveal" src={previewSrc} alt="Fixate visual preview" onClick={() => window.open(previewSrc, '_blank')} title="Open full size" />
+                      {preview === 'heatmap' && imageDims && regions
+                        .filter(region => region.rank <= scanPathCount)
+                        .map(region => (
+                          <div
+                            key={region.rank}
+                            className="fixMarkerWrap"
+                            style={{
+                              left: `${(region.peak_coords[0] / imageDims.w) * 100}%`,
+                              top: `${(region.peak_coords[1] / imageDims.h) * 100}%`,
+                            }}
+                          >
+                            <button className={`fixHotspot ${activeRank === region.rank ? 'active' : ''}`} onClick={() => explainRegion(region.rank)} title={`Explain fixation #${region.rank}`} />
+                            {activeRank === region.rank && (
+                              <div className="fixPopover">
+                                <strong>Fixation point #{region.rank}</strong>
+                                <p>{explainLoading === region.rank ? 'Analyzing this point...' : (explanations[region.rank] || '')}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : busy ? (
+                  <div style={{ padding: 16 }}><div className="shimmer" /></div>
+                ) : (
+                  <div className="skeleton">
+                    <Eye className="ic" size={40} />
+                    <strong>No preview yet</strong>
+                    <p>Run an analysis to generate the capture, attention heatmap, and tuned image variant — they’ll stream in here live.</p>
+                  </div>
+                )}
+              </div>
             </section>
 
             <section className="splitGrid">
               <section className="panel scorePanel">
-                <h2>Score Trend</h2>
+                <h2><LineChart size={18} /> Score Trend</h2>
                 <div className="scoreChart">
                   {scorePoints.map((point, index) => (
                     <div key={`${point.label}-${index}`} className="barWrap">
-                      <div className="bar" style={{ height: `${Math.max(8, point.score)}%` }} />
+                      <div className="barTrack">
+                        <div className="bar" style={{ height: `${Math.max(6, point.score)}%` }} />
+                      </div>
                       <span>{point.label}</span>
                       <strong>{point.score}</strong>
                     </div>
@@ -765,7 +898,7 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
                   <article className="selectedSegment">
                     <strong>{selectedSegment.name}</strong>
                     <p>{selectedSegment.summary}</p>
-                    <span>{selectedSegment.recommended_channel}</span>
+                    <span className="chan">{selectedSegment.recommended_channel}</span>
                   </article>
                 ) : <div className="empty">Audience segments appear after the Demographics Agent runs.</div>}
               </section>
@@ -797,12 +930,12 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
 
             <section className="lowerGrid">
               <section className="panel">
-                <h2>Buyer Reactions</h2>
+                <h2><Brain size={18} /> Buyer Reactions</h2>
                 <div className="reactionList">
                   {(result?.buyer_reactions || []).map(reaction => (
                     <article key={reaction.dimension} className={`reaction ${reaction.severity}`}>
                       <strong>{reaction.dimension.replace('_', ' ')}</strong>
-                      <span>{reaction.severity}</span>
+                      <span className="sev">{reaction.severity}</span>
                       <p>{reaction.explanation}</p>
                     </article>
                   ))}
@@ -810,7 +943,7 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
                 </div>
               </section>
               <section className="panel">
-                <h2>Zone Analysis</h2>
+                <h2><Crosshair size={18} /> Zone Analysis</h2>
                 <div className="zoneGrid">
                   {['power_zone', 'attention_trap', 'hidden_value', 'dead_zone'].map(zone => (
                     <div key={zone} className={`zone ${zone}`}>
@@ -825,8 +958,8 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
 
             <section className="panel">
               <div className="panelHeader">
-                <h2>Live Agent Work</h2>
-                <span>{jobId || 'No active job'}</span>
+                <h2><Zap size={18} /> Live Agent Work</h2>
+                <span className="mono">{jobId ? jobId.slice(0, 16) : 'no active job'}</span>
               </div>
               <div className="timeline">
                 {events.map(event => {
@@ -834,7 +967,7 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
                   const Icon = meta.icon
                   return (
                     <article key={event.seq} className={`event ${event.event === 'edit_blocked' ? 'blocked' : ''}`}>
-                      <Icon size={16} />
+                      <span className="evIc"><Icon size={15} /></span>
                       <div>
                         <strong>
                           <span>{event.agent || meta.agent}</span>
@@ -860,8 +993,8 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
           <section className="results">
             <section className="resultBand">
               <div><span>Baseline</span><strong>{result.baseline.fixate_score}</strong></div>
-              <div><span>Final</span><strong>{result.final.fixate_score}</strong></div>
-              <div><span>Delta</span><strong>{(result.final.fixate_score - result.baseline.fixate_score).toFixed(1)}</strong></div>
+              <div><span>Final</span><strong className="up">{result.final.fixate_score}</strong></div>
+              <div><span>Delta</span><strong className={result.final.fixate_score >= result.baseline.fixate_score ? 'up' : ''}>{result.final.fixate_score - result.baseline.fixate_score >= 0 ? '+' : ''}{(result.final.fixate_score - result.baseline.fixate_score).toFixed(1)}</strong></div>
               <div><span>Audience</span><strong>{result.selected_demographic?.name || result.experiment_plan.target_audience || 'General'}</strong></div>
             </section>
 
@@ -876,10 +1009,10 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
                         <strong>{variant.target_blocker}</strong>
                         <span className={variant.accepted ? 'accepted' : 'rejected'}>{variant.accepted ? 'accepted' : 'rejected'}</span>
                       </div>
-                      {variant.demographic_focus && <small>{variant.demographic_focus}</small>}
+                      {variant.demographic_focus && <span className="focus">{variant.demographic_focus}</span>}
                       <p>{variant.explanation || variant.description}</p>
                       <code>{variant.rewritten_copy}</code>
-                      <div className="delta">{variant.before_score} to {variant.after_score} ({variant.delta > 0 ? '+' : ''}{variant.delta})</div>
+                      <div className={`delta ${variant.delta >= 0 ? 'pos' : 'neg'}`}>{variant.before_score} → {variant.after_score} ({variant.delta > 0 ? '+' : ''}{variant.delta})</div>
                     </div>
                   </article>
                 ))}
@@ -891,9 +1024,9 @@ function App({ convexSync = disabledConvexSync }: { convexSync?: ConvexSync }) {
               <div className="blockedGrid">
                 {result.blocked_edits.map((blocked, index) => (
                   <article key={`${blocked.blocker}-${index}`} className="blockedCard">
-                    <strong>{blocked.blocker}</strong>
+                    <strong><Lock size={15} /> {blocked.blocker}</strong>
                     <p>{blocked.reason}</p>
-                    <span>Estimated gain: +{blocked.estimated_gain}</span>
+                    <span className="gain">Estimated gain: +{blocked.estimated_gain}</span>
                     <button onClick={() => unlockAndRerun(blocked.reason.includes('Layout') ? 'layout' : undefined)}>
                       <Unlock size={16} />
                       Unlock and re-run
